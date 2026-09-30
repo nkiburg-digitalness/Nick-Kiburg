@@ -1,0 +1,26 @@
+# Alternatief zonder Docker: als systemd-service met de Node.js van Plesk.
+# Installeren:
+#   useradd --system --home /opt/voorraad --shell /usr/sbin/nologin voorraad
+#   code in /opt/voorraad, .env aanmaken, chown -R voorraad:voorraad /opt/voorraad
+#   cp deploy/voorraad.service /etc/systemd/system/ && systemctl enable --now voorraad
+# Controleer het pad naar Node.js 22 of hoger (Plesk: /opt/plesk/node/<versie>/bin/node).
+[Unit]
+Description=Voorraadbeheer tochtstripdeur.nl
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=voorraad
+WorkingDirectory=/opt/voorraad
+Environment=NODE_ENV=production TRUST_PROXY=true PORT=3000
+ExecStart=/opt/plesk/node/22/bin/node --disable-warning=ExperimentalWarning src/index.js
+Restart=always
+RestartSec=5
+MemoryMax=256M
+CPUQuota=50%
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

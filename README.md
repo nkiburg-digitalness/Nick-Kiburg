@@ -92,6 +92,10 @@ Wat er voor continu gebruik al in zit:
 - **Niets gemist na uitval**: gemiste Bol.com-orders worden per dag opgehaald, gemiste webshoporders via de vangnet-controle, en voorraadupdates die nog in de wachtrij stonden worden alsnog verstuurd.
 - **Dagelijkse back-up** van de database (standaard 14 dagen bewaard, in `data/backups`, bij Docker in het volume onder `/data/backups`).
 
+### Bestaande VPS met Plesk (bijv. Snel.com)
+
+Draait de webshop al op een VPS met Plesk? Dan kan het voorraadbeheer daar naast de webshop draaien, op een eigen subdomein en begrensd in geheugen en processorkracht. Volg **[docs/installatie-plesk.md](docs/installatie-plesk.md)**; daarin staat ook een kant-en-klaar bericht voor de support van een managed VPS.
+
 ### Optie A: eigen server (VPS) met Docker – aanbevolen
 
 Een kleine VPS in Nederland/Duitsland (bijv. TransIP, Hetzner, DigitalOcean Amsterdam; ± €5–10 per maand, 1 GB geheugen is ruim voldoende).

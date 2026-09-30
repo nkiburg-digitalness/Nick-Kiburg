@@ -1,0 +1,31 @@
+# Voor een server met Plesk (bijv. een managed VPS bij Snel.com) waar ook de webshop op draait.
+# Plesk (nginx) regelt het webadres en HTTPS en stuurt het verkeer door naar dit programma,
+# dat alleen lokaal bereikbaar is (127.0.0.1) – niet rechtstreeks vanaf internet.
+#
+#   mkdir -p /opt/voorraad-data && chown 1000:1000 /opt/voorraad-data
+#   docker compose -f docker-compose.plesk.yml up -d --build
+#
+# Zie docs/installatie-plesk.md voor de volledige stappen.
+services:
+  voorraad:
+    build: .
+    container_name: voorraad
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DB_FILE: /data/voorraad.db
+      BACKUP_DIR: /data/backups
+      TRUST_PROXY: "true"
+      PORT: "3000"
+    ports:
+      - "127.0.0.1:${VOORRAAD_PORT:-3000}:3000"
+    volumes:
+      - ${VOORRAAD_DATA_DIR:-/opt/voorraad-data}:/data
+    # Begrenzing zodat de webshop op dezelfde server er nooit last van heeft.
+    mem_limit: 256m
+    cpus: 0.5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

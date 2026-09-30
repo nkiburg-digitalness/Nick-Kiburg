@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Voorraadbeheer</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg class="brand-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5v-9Z M3 7.5l9 4.5 9-4.5 M12 12v9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+      <div>
+        <h1>Voorraadbeheer</h1>
+        <p class="muted">tochtstripdeur.nl · Bol.com + webshop</p>
+      </div>
+    </div>
+    <div class="channels" id="channels"></div>
+    <div class="live" id="live" title="Live verbinding"><span class="dot"></span><span id="live-label">Verbinden…</span></div>
+  </header>
+
+  <div class="banner" id="demo-banner" hidden>
+    Demo-modus: er worden gesimuleerde orders geplaatst en er gaat niets naar Bol.com of de webshop.
+  </div>
+
+  <main>
+    <section class="kpis" id="kpis" aria-label="Samenvatting"></section>
+
+    <section class="panel">
+      <div class="toolbar">
+        <input type="search" id="search" placeholder="Zoek op naam, SKU of EAN" aria-label="Zoeken">
+        <div class="segmented" id="status-filter" role="group" aria-label="Filter op status">
+          <button data-filter="all" class="active">Alle</button>
+          <button data-filter="action">Actie nodig</button>
+          <button data-filter="out">Uitverkocht</button>
+        </div>
+        <label class="window-select">
+          <span class="muted">Gemiddelde over</span>
+          <select id="window">
+            <option value="7">7 dagen</option>
+            <option value="14">14 dagen</option>
+            <option value="30" selected>30 dagen</option>
+            <option value="60">60 dagen</option>
+            <option value="90">90 dagen</option>
+          </select>
+        </label>
+        <button class="primary" id="add-product">+ Product</button>
+      </div>
+      <div class="table-wrap">
+        <table class="products">
+          <thead>
+            <tr>
+              <th data-sort="name">Product</th>
+              <th data-sort="stock" class="num">Voorraad</th>
+              <th class="hide-sm">Kanalen</th>
+              <th data-sort="avg" class="num hide-xs">Gem. / dag</th>
+              <th class="hide-sm">Verkoop per dag</th>
+              <th data-sort="daysLeft" class="num">Uitverkocht over</th>
+              <th data-sort="orderBy" class="hide-sm">Bestellen vóór</th>
+              <th data-sort="advice" class="num hide-sm">Advies</th>
+              <th data-sort="status">Status</th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+        <p class="empty" id="empty" hidden>Geen producten gevonden.</p>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Live activiteit</h2>
+        <span class="muted small">verkopen, synchronisaties en meldingen</span>
+      </div>
+      <ol class="activity" id="activity"></ol>
+    </section>
+  </main>
+
+  <dialog class="drawer" id="detail">
+    <div class="drawer-inner" id="detail-body"></div>
+  </dialog>
+
+  <dialog class="modal" id="product-dialog">
+    <form method="dialog" id="product-form" class="form-grid">
+      <h2>Nieuw product</h2>
+      <label>SKU<input name="sku" required></label>
+      <label>Naam<input name="name" required></label>
+      <label>EAN<input name="ean" inputmode="numeric"></label>
+      <label>Beginvoorraad<input name="stock" type="number" min="0" value="0"></label>
+      <label>Levertijd leverancier (dagen)<input name="lead_time_days" type="number" min="0" value="14"></label>
+      <label>Veiligheidsmarge (dagen)<input name="safety_days" type="number" min="0" value="7"></label>
+      <label>WooCommerce product-ID<input name="woo_product_id" inputmode="numeric"></label>
+      <label>WooCommerce variatie-ID<input name="woo_variation_id" inputmode="numeric"></label>
+      <label class="span-2">Bol.com offer-ID<input name="bol_offer_id"></label>
+      <p class="form-error span-2" hidden></p>
+      <div class="actions span-2">
+        <button type="button" data-close>Annuleren</button>
+        <button class="primary" type="submit">Opslaan</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div class="tooltip" id="tooltip" role="status" hidden></div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

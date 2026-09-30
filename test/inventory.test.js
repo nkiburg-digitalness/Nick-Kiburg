@@ -78,3 +78,23 @@ test('products are found by channel ids, SKU or EAN', () => {
   assert.equal(inventory.findProduct({ wooProductId: 11, wooVariationId: 12 }).sku, 'TS-2');
   assert.equal(inventory.findProduct({ sku: 'nope' }), null);
 });
+
+test('daily backup is a readable copy and old backups are pruned', async () => {
+  const { mkdtempSync, readdirSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { Backups } = await import('../src/backup.js');
+  const { openDb } = await import('../src/db.js');
+  const { db, bus, inventory } = setup();
+  inventory.upsertProduct({ sku: 'TS-1', name: 'Tochtstrip', stock: 7 });
+  const dir = mkdtempSync(join(tmpdir(), 'voorraad-backup-'));
+  for (const d of ['2026-01-01', '2026-01-02', '2026-01-03']) writeFileSync(join(dir, `voorraad-${d}.db`), '');
+
+  const backups = new Backups({ db, bus, dir, keep: 2 });
+  const file = backups.runIfDue(new Date('2026-09-30T08:00:00Z'));
+  assert.equal(backups.runIfDue(new Date('2026-09-30T20:00:00Z')), null, 'only once per day');
+  assert.deepEqual(readdirSync(dir).sort(), ['voorraad-2026-01-03.db', 'voorraad-2026-09-30.db']);
+  const copy = openDb(file);
+  assert.equal(copy.prepare('SELECT stock FROM products').get().stock, 7);
+  copy.close();
+});

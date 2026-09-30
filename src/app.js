@@ -1,4 +1,6 @@
 import { openDb, getKv, setKv } from './db.js';
+import { Auth } from './auth.js';
+import { Backups } from './backup.js';
 import { EventBus } from './events.js';
 import { Inventory } from './inventory.js';
 import { SyncWorker } from './sync.js';
@@ -14,6 +16,7 @@ import { DemoChannel, startDemoSales } from './channels/demo.js';
 export function createApp(config, { fetchImpl = fetch } = {}) {
   const db = openDb(config.dbFile);
   const bus = new EventBus(db);
+  const auth = new Auth(db);
 
   let goLiveAt = process.env.GO_LIVE_AT ? new Date(process.env.GO_LIVE_AT).toISOString() : getKv(db, 'go_live_at');
   if (!goLiveAt) {
@@ -41,6 +44,8 @@ export function createApp(config, { fetchImpl = fetch } = {}) {
     if (byName.woocommerce) pollers.push(new Poller({ channel: byName.woocommerce, inventory, bus, intervalSeconds: config.woo.pollIntervalSeconds }));
   }
 
+  const backups = config.backupDir ? new Backups({ db, bus, dir: config.backupDir, keep: config.backupKeepDays }) : null;
+
   let stopDemo = null;
   return {
     config,
@@ -51,14 +56,27 @@ export function createApp(config, { fetchImpl = fetch } = {}) {
     pollers,
     worker,
     goLiveAt,
+    auth,
+    demoLogin: null,
+    /** Create the first beheerder from ADMIN_EMAIL / ADMIN_PASSWORD if there are no users yet. */
+    async bootstrapAdmin() {
+      if (auth.hasUsers() || !config.adminEmail || !config.adminPassword) return null;
+      const user = await auth.createUser({
+        email: config.adminEmail, name: config.adminName, role: 'beheerder', password: config.adminPassword,
+      });
+      bus.log('info', `Eerste beheerder ${user.name} (${user.email}) aangemaakt`);
+      return user;
+    },
     start() {
       worker.start();
       for (const p of pollers) p.start();
+      backups?.start();
       if (config.demoMode) stopDemo = startDemoSales(inventory);
     },
     stop() {
       worker.stop();
       for (const p of pollers) p.stop();
+      backups?.stop();
       stopDemo?.();
       db.close();
     },

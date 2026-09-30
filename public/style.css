@@ -67,6 +67,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { margin: 0; }
 body {
   background: var(--bg);
@@ -205,6 +206,41 @@ table.products { width: 100%; border-collapse: collapse; }
 .runway em { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--text-2); }
 .spark { display: block; }
 
+/* User menu */
+.user-menu { position: relative; }
+#user-button { display: flex; align-items: center; gap: 8px; padding: 4px 10px 4px 4px; border-radius: 999px; }
+.avatar {
+  width: 26px; height: 26px; border-radius: 50%; display: inline-grid; place-items: center;
+  background: var(--surface-2); border: 1px solid var(--border); font-size: 12px; font-weight: 600;
+}
+.menu {
+  position: absolute; right: 0; top: calc(100% + 6px); min-width: 220px; z-index: 20;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.14); padding: 6px; display: grid;
+}
+.menu-head { display: grid; padding: 6px 10px 8px; border-bottom: 1px solid var(--grid); margin-bottom: 4px; }
+.menu button { border: 0; text-align: left; background: transparent; padding: 8px 10px; }
+.menu button:hover { background: var(--surface-2); }
+.users-inner { padding: 20px; display: grid; gap: 16px; width: min(760px, calc(100vw - 32px)); }
+.user-add { display: grid; grid-template-columns: 1fr 1.3fr auto auto; gap: 8px; }
+.users-table td { vertical-align: middle; }
+.users-table select { padding: 4px 6px; }
+.users-table .row-actions { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
+.users-table .row-actions button { padding: 4px 8px; font-size: 12px; }
+.users-table tr.disabled td:not(:last-child) { opacity: 0.55; }
+.password-box { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 15px; font-weight: 600; user-select: all; }
+
+/* Login */
+.login-page { min-height: 100vh; display: grid; place-items: center; padding: 16px; }
+.login-card {
+  width: min(400px, 100%); background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+  box-shadow: var(--shadow); padding: 28px; display: grid; gap: 20px;
+}
+.login-card .brand { margin: 0; }
+.login-form { display: grid; gap: 14px; }
+.login-form label { display: grid; gap: 4px; font-size: 12px; color: var(--text-2); }
+.login-form button { padding: 10px; }
+
 /* Status badges: always icon + label, never colour alone */
 .badge {
   display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
@@ -308,6 +344,8 @@ table.moves { width: 100%; border-collapse: collapse; font-size: 13px; }
   .hide-sm { display: none; }
   .drawer-inner { padding: 16px; }
   .form-grid { grid-template-columns: 1fr; }
+  .user-add { grid-template-columns: 1fr 1fr; }
+  #user-name { display: none; }
   .kpi .value { font-size: 22px; }
   .kpis { grid-template-columns: 1fr 1fr; }
 }

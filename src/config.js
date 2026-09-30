@@ -27,9 +27,16 @@ export const config = {
   port: int(env.PORT, 3000),
   // The demo uses its own database, so it can never overwrite real stock data.
   dbFile: env.DB_FILE || resolve(process.cwd(), 'data', demoMode ? 'demo.db' : 'voorraad.db'),
-  // Dashboard login (HTTP Basic). Leave empty to disable (only for local use!).
-  adminUser: env.ADMIN_USER || 'admin',
+  // First beheerder account, created on start-up when there are no users yet.
+  // Colleagues are added afterwards via the dashboard (Gebruikers) or `npm run gebruiker`.
+  adminEmail: env.ADMIN_EMAIL || '',
+  adminName: env.ADMIN_NAME || 'Beheerder',
   adminPassword: env.ADMIN_PASSWORD || '',
+  // Daily database backups (kept for BACKUP_KEEP_DAYS). Empty BACKUP_DIR disables them.
+  backupDir: env.BACKUP_DIR ?? (demoMode ? '' : resolve(process.cwd(), 'data', 'backups')),
+  backupKeepDays: int(env.BACKUP_KEEP_DAYS, 14),
+  // Set to true when running behind a reverse proxy / hosting platform that terminates HTTPS.
+  trustProxy: bool(env.TRUST_PROXY),
   // Demo mode: no real API calls; channel pushes are simulated.
   demoMode,
 

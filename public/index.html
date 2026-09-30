@@ -17,6 +17,15 @@
     </div>
     <div class="channels" id="channels"></div>
     <div class="live" id="live" title="Live verbinding"><span class="dot"></span><span id="live-label">Verbinden…</span></div>
+    <div class="user-menu">
+      <button id="user-button" aria-haspopup="menu" aria-expanded="false"><span class="avatar" id="avatar"></span><span id="user-name"></span></button>
+      <div class="menu" id="user-dropdown" role="menu" hidden>
+        <div class="menu-head"><b id="menu-name"></b><span class="muted small" id="menu-role"></span></div>
+        <button role="menuitem" data-menu="users" data-min-role="beheerder">Gebruikers beheren</button>
+        <button role="menuitem" data-menu="account">Mijn account</button>
+        <button role="menuitem" data-menu="logout">Uitloggen</button>
+      </div>
+    </div>
   </header>
 
   <div class="banner" id="demo-banner" hidden>
@@ -44,7 +53,7 @@
             <option value="90">90 dagen</option>
           </select>
         </label>
-        <button class="primary" id="add-product">+ Product</button>
+        <button class="primary" id="add-product" data-min-role="medewerker">+ Product</button>
       </div>
       <div class="table-wrap">
         <table class="products">
@@ -96,6 +105,53 @@
       <div class="actions span-2">
         <button type="button" data-close>Annuleren</button>
         <button class="primary" type="submit">Opslaan</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="modal" id="users-dialog">
+    <div class="users-inner">
+      <div class="drawer-head">
+        <div class="grow"><h2>Gebruikers</h2><p class="muted small">Iedereen met een account kan het dashboard openen, vanaf elke computer of telefoon.</p></div>
+        <button class="close" data-close aria-label="Sluiten">×</button>
+      </div>
+      <div class="table-wrap">
+        <table class="moves users-table">
+          <thead><tr><th>Naam</th><th>Rol</th><th class="hide-sm">Laatst ingelogd</th><th></th></tr></thead>
+          <tbody id="users-rows"></tbody>
+        </table>
+      </div>
+      <form id="user-form" class="mini-form">
+        <h3>Collega toevoegen</h3>
+        <div class="user-add">
+          <input name="name" placeholder="Naam" required>
+          <input name="email" type="email" placeholder="E-mailadres" required>
+          <select name="role">
+            <option value="medewerker">Medewerker</option>
+            <option value="kijker">Alleen bekijken</option>
+            <option value="beheerder">Beheerder</option>
+          </select>
+          <button class="primary">Toevoegen</button>
+        </div>
+        <p class="muted small"><b>Alleen bekijken</b>: voorraad en voorspellingen inzien. <b>Medewerker</b>: ook leveringen, tellingen en producten boeken. <b>Beheerder</b>: ook gebruikers beheren en producten verwijderen.</p>
+      </form>
+      <p class="explain" id="new-password" hidden></p>
+      <p class="form-error" id="users-error" hidden></p>
+    </div>
+  </dialog>
+
+  <dialog class="modal" id="account-dialog">
+    <form id="account-form" class="form-grid">
+      <h2>Mijn account</h2>
+      <p class="muted span-2" id="account-info"></p>
+      <label class="span-2">Huidig wachtwoord<input name="current" type="password" autocomplete="current-password" required></label>
+      <label>Nieuw wachtwoord<input name="password" type="password" autocomplete="new-password" minlength="10" required></label>
+      <label>Herhaal nieuw wachtwoord<input name="repeat" type="password" autocomplete="new-password" minlength="10" required></label>
+      <p class="form-error span-2" hidden></p>
+      <p class="explain span-2" id="account-ok" hidden>Wachtwoord gewijzigd. U bent op andere apparaten uitgelogd.</p>
+      <div class="actions span-2">
+        <button type="button" data-close>Sluiten</button>
+        <button class="primary" type="submit">Wachtwoord wijzigen</button>
       </div>
     </form>
   </dialog>

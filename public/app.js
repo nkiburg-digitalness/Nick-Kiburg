@@ -25,7 +25,11 @@ const STATUS = {
 };
 const MOVE_TYPES = { sale: 'Verkoop', sale_reversal: 'Annulering', receipt: 'Ontvangst', correction: 'Correctie' };
 
+const ROLE_LEVEL = { kijker: 1, medewerker: 2, beheerder: 3 };
+const ROLE_LABEL = { kijker: 'Alleen bekijken', medewerker: 'Medewerker', beheerder: 'Beheerder' };
+
 const state = {
+  me: null,
   data: null,
   windowDays: 30,
   filter: 'all',
@@ -45,9 +49,22 @@ async function api(path, { method = 'GET', body } = {}) {
     headers: body ? { 'Content-Type': 'application/json' } : {},
     body: body ? JSON.stringify(body) : undefined,
   });
+  if (res.status === 401) {
+    location.href = '/login';
+    throw new Error('Sessie verlopen');
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `Fout ${res.status}`);
   return data;
+}
+
+function can(role) {
+  return (ROLE_LEVEL[state.me?.user?.role] ?? 0) >= ROLE_LEVEL[role];
+}
+
+/** Hide controls the current user's role may not use (the server enforces this too). */
+function applyRole(root = document) {
+  for (const el of root.querySelectorAll('[data-min-role]')) el.hidden = !can(el.dataset.minRole);
 }
 
 function parseDay(day) {
@@ -339,10 +356,10 @@ async function renderDetail(sku, { keepScroll = false } = {}) {
           </div>`;
         }).join('')}
       </div>
-      <div class="actions"><button data-action="resync">Voorraad opnieuw naar kanalen sturen</button></div>
+      <div class="actions" data-min-role="medewerker"><button data-action="resync">Voorraad opnieuw naar kanalen sturen</button></div>
     </div>
 
-    <div class="forms">
+    <div class="forms" data-min-role="medewerker">
       <form class="mini-form" data-form="receipt">
         <h3>Levering ontvangen</h3>
         <div class="row"><input name="delta" type="number" min="1" placeholder="Aantal" required><button class="primary">Boeken</button></div>
@@ -355,7 +372,7 @@ async function renderDetail(sku, { keepScroll = false } = {}) {
       </form>
     </div>
 
-    <form class="mini-form" data-form="settings">
+    <form class="mini-form" data-form="settings" data-min-role="medewerker">
       <h3>Productinstellingen</h3>
       <div class="form-grid" style="padding:0;width:auto">
         <label>Naam<input name="name" value="${esc(p.name)}" required></label>
@@ -365,7 +382,7 @@ async function renderDetail(sku, { keepScroll = false } = {}) {
         <label>WooCommerce product-ID<input name="woo_product_id" value="${esc(p.woo_product_id ?? '')}"></label>
         <label>WooCommerce variatie-ID<input name="woo_variation_id" value="${esc(p.woo_variation_id ?? '')}"></label>
         <label class="span-2">Bol.com offer-ID<input name="bol_offer_id" value="${esc(p.bol_offer_id ?? '')}"></label>
-        <div class="actions span-2"><button type="button" class="danger" data-action="delete">Product verwijderen</button><button class="primary">Opslaan</button></div>
+        <div class="actions span-2"><button type="button" class="danger" data-action="delete" data-min-role="beheerder">Product verwijderen</button><button class="primary">Opslaan</button></div>
       </div>
     </form>
 
@@ -380,13 +397,14 @@ async function renderDetail(sku, { keepScroll = false } = {}) {
             <td>${CHANNELS[m.channel] ?? esc(m.channel)}</td>
             <td class="num ${m.delta > 0 ? 'plus' : 'minus'}">${m.delta > 0 ? '+' : ''}${nf.format(m.delta)}</td>
             <td class="num">${m.stock_after ?? '–'}</td>
-            <td class="muted">${esc(m.note ?? '')}</td>
+            <td class="muted">${esc([m.note, m.user_name].filter(Boolean).join(' · '))}</td>
           </tr>`).join('')}</tbody>
         </table>
       </div>
     </div>
   `;
 
+  applyRole(body);
   stockChart($('#stock-chart'), history, p);
   salesChart($('#sales-chart'), history, f);
   if (keepScroll) detail.scrollTop = scroll;
@@ -700,6 +718,149 @@ function bindUi() {
   });
 }
 
+/* ---------------------------------------------------------------- users & account */
+function renderUserMenu() {
+  const { user } = state.me;
+  const initials = user.name.split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+  $('#avatar').textContent = initials;
+  $('#user-name').textContent = user.name;
+  $('#menu-name').textContent = user.name;
+  $('#menu-role').textContent = `${ROLE_LABEL[user.role]} · ${user.email}`;
+  applyRole();
+}
+
+function bindUserMenu() {
+  const button = $('#user-button');
+  const menu = $('#user-dropdown');
+  const toggle = (open) => {
+    menu.hidden = !open;
+    button.setAttribute('aria-expanded', String(open));
+  };
+  button.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggle(menu.hidden);
+  });
+  document.addEventListener('click', () => toggle(false));
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') toggle(false); });
+  menu.addEventListener('click', async (e) => {
+    const action = e.target.closest('[data-menu]')?.dataset.menu;
+    if (action === 'logout') {
+      await api('/api/logout', { method: 'POST' }).catch(() => {});
+      location.href = '/login';
+    } else if (action === 'users') {
+      openUsers();
+    } else if (action === 'account') {
+      const dialog = $('#account-dialog');
+      $('#account-form').reset();
+      $('.form-error', dialog).hidden = true;
+      $('#account-ok').hidden = true;
+      $('#account-info').textContent = `${state.me.user.name} · ${state.me.user.email} · ${ROLE_LABEL[state.me.user.role]}`;
+      dialog.showModal();
+    }
+  });
+
+  const account = $('#account-dialog');
+  account.addEventListener('click', (e) => {
+    if (e.target === account || e.target.closest('[data-close]')) account.close();
+  });
+  $('#account-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const form = e.target;
+    const err = $('.form-error', account);
+    err.hidden = true;
+    if (form.password.value !== form.repeat.value) {
+      err.textContent = 'De nieuwe wachtwoorden zijn niet gelijk.';
+      err.hidden = false;
+      return;
+    }
+    try {
+      await api('/api/me/password', { method: 'POST', body: { current: form.current.value, password: form.password.value } });
+      form.reset();
+      $('#account-ok').hidden = false;
+    } catch (ex) {
+      err.textContent = ex.message;
+      err.hidden = false;
+    }
+  });
+
+  const users = $('#users-dialog');
+  users.addEventListener('click', async (e) => {
+    if (e.target === users || e.target.closest('[data-close]')) return users.close();
+    const btn = e.target.closest('[data-user-action]');
+    if (!btn) return;
+    const id = Number(btn.closest('tr').dataset.id);
+    const name = btn.closest('tr').dataset.name;
+    await usersAction(async () => {
+      if (btn.dataset.userAction === 'password') {
+        if (!confirm(`Nieuw wachtwoord instellen voor ${name}? Het huidige wachtwoord werkt dan niet meer.`)) return;
+        const { password } = await api(`/api/users/${id}/password`, { method: 'POST' });
+        showNewPassword(name, password);
+      } else if (btn.dataset.userAction === 'toggle') {
+        await api(`/api/users/${id}`, { method: 'PATCH', body: { disabled: btn.dataset.disabled !== '1' } });
+      } else if (btn.dataset.userAction === 'delete') {
+        if (!confirm(`${name} verwijderen? Eerder geboekte mutaties blijven bewaard.`)) return;
+        await api(`/api/users/${id}`, { method: 'DELETE' });
+      }
+    });
+  });
+  users.addEventListener('change', async (e) => {
+    if (!e.target.matches('select[data-role-for]')) return;
+    await usersAction(() => api(`/api/users/${e.target.dataset.roleFor}`, { method: 'PATCH', body: { role: e.target.value } }));
+  });
+  $('#user-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const values = Object.fromEntries(new FormData(e.target));
+    await usersAction(async () => {
+      const { user, password } = await api('/api/users', { method: 'POST', body: values });
+      e.target.reset();
+      showNewPassword(user.name, password, user.email);
+    });
+  });
+}
+
+function showNewPassword(name, password, email) {
+  const box = $('#new-password');
+  box.innerHTML = `Tijdelijk wachtwoord voor <b>${esc(name)}</b>${email ? ` (${esc(email)})` : ''}:
+    <span class="password-box">${esc(password)}</span><br>
+    Geef dit persoonlijk of telefonisch door – het wordt maar één keer getoond. Inloggen via ${esc(location.origin)}; daarna kan het wachtwoord worden gewijzigd via <i>Mijn account</i>.`;
+  box.hidden = false;
+}
+
+async function usersAction(fn) {
+  const err = $('#users-error');
+  err.hidden = true;
+  try {
+    await fn();
+  } catch (ex) {
+    err.textContent = ex.message;
+    err.hidden = false;
+  }
+  await renderUsers();
+}
+
+async function openUsers() {
+  $('#new-password').hidden = true;
+  $('#users-error').hidden = true;
+  await renderUsers();
+  $('#users-dialog').showModal();
+}
+
+async function renderUsers() {
+  const list = await api('/api/users');
+  const me = state.me.user.id;
+  $('#users-rows').innerHTML = list.map((u) => `<tr data-id="${u.id}" data-name="${esc(u.name)}" class="${u.disabled ? 'disabled' : ''}">
+    <td><div class="pname">${esc(u.name)}${u.id === me ? ' <span class="muted small">(u)</span>' : ''}</div><div class="psku">${esc(u.email)}</div></td>
+    <td>${u.id === me ? ROLE_LABEL[u.role] : `<select data-role-for="${u.id}" aria-label="Rol van ${esc(u.name)}">
+      ${Object.entries(ROLE_LABEL).map(([r, l]) => `<option value="${r}" ${r === u.role ? 'selected' : ''}>${l}</option>`).join('')}</select>`}
+      ${u.disabled ? '<div class="muted small">geblokkeerd</div>' : ''}</td>
+    <td class="hide-sm muted">${u.lastLoginAt ? dateTimeFmt.format(new Date(u.lastLoginAt)) : 'nog nooit'}</td>
+    <td>${u.id === me ? '' : `<div class="row-actions">
+      <button data-user-action="password">Nieuw wachtwoord</button>
+      <button data-user-action="toggle" data-disabled="${u.disabled ? 1 : 0}">${u.disabled ? 'Deblokkeren' : 'Blokkeren'}</button>
+      <button data-user-action="delete" class="danger">Verwijderen</button></div>`}</td>
+  </tr>`).join('');
+}
+
 /* ---------------------------------------------------------------- start */
 try {
   const saved = localStorage.getItem('voorraad.window');
@@ -709,7 +870,10 @@ try {
   }
 } catch { /* storage unavailable */ }
 
+state.me = await api('/api/me');
+renderUserMenu();
 bindUi();
+bindUserMenu();
 await Promise.all([load(), loadActivity()]);
 connectEvents();
 setInterval(renderChannels, 15000);

@@ -7,6 +7,7 @@ import { rmSync } from 'node:fs';
 import { config } from '../src/config.js';
 import { createApp } from '../src/app.js';
 import { setKv } from '../src/db.js';
+import { DEMO_LOGIN } from '../src/demo-login.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HISTORY_DAYS = 90;
@@ -106,6 +107,10 @@ PRODUCTS.forEach(([sku, name, ean, finalStock, bolRate, wooRate, lead, safety], 
   }
   if (!received) setTime(inventory.adjustStock({ sku, delta: receipt, type: 'receipt', note: 'Levering leverancier' }), new Date(receiptAt).toISOString());
 });
+
+await app.auth.createUser({ ...DEMO_LOGIN, role: 'beheerder' });
+await app.auth.createUser({ email: 'magazijn@tochtstripdeur.nl', name: 'Sanne (magazijn)', role: 'medewerker', password: 'demo-wachtwoord' });
+await app.auth.createUser({ email: 'boekhouding@tochtstripdeur.nl', name: 'Joost (boekhouding)', role: 'kijker', password: 'demo-wachtwoord' });
 
 db.exec('DELETE FROM sync_queue; DELETE FROM event_log;');
 for (const p of inventory.listProducts()) {

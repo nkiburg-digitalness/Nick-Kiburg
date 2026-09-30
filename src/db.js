@@ -62,6 +62,24 @@ CREATE TABLE IF NOT EXISTS kv (
   value TEXT
 );
 
+CREATE TABLE IF NOT EXISTS users (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  email         TEXT NOT NULL UNIQUE,
+  name          TEXT NOT NULL,
+  role          TEXT NOT NULL CHECK (role IN ('beheerder', 'medewerker', 'kijker')),
+  password_hash TEXT NOT NULL,
+  disabled      INTEGER NOT NULL DEFAULT 0,
+  created_at    TEXT NOT NULL DEFAULT (${NOW}),
+  last_login_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+  token_hash TEXT PRIMARY KEY,
+  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL DEFAULT (${NOW}),
+  expires_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS event_log (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   created_at TEXT NOT NULL DEFAULT (${NOW}),
@@ -77,7 +95,19 @@ export function openDb(file) {
   const db = new DatabaseSync(file);
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
   db.exec(SCHEMA);
+  migrate(db);
   return db;
+}
+
+function ensureColumn(db, table, column, definition) {
+  const exists = db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column);
+  if (!exists) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+}
+
+/** Additive schema changes for databases created by an earlier version. */
+function migrate(db) {
+  // Who booked a manual movement (receipt, stocktake, correction).
+  ensureColumn(db, 'stock_movements', 'user_name', 'TEXT');
 }
 
 /** Run fn inside a write transaction; rolls back on error. */

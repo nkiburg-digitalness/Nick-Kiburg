@@ -6,6 +6,8 @@ Centraal voorraadbeheer voor **Bol.com** en de **eigen webshop (WooCommerce)**:
 - **Eén centrale voorraad** – het systeem is leidend; beide kanalen krijgen altijd dezelfde, actuele voorraad.
 - **Uitverkoopvoorspelling** – per product: gemiddelde verkoop per dag, over hoeveel dagen het uitverkocht is, uiterste besteldatum en een besteladvies.
 - **Live dashboard** – voorraad, synchronisatiestatus per kanaal, grafieken en een live activiteitenlog.
+- **Voor het hele team** – eigen login per collega met een rol; bij elke mutatie staat wie hem heeft geboekt.
+- **24/7 online** – draait op een server (niet op een laptop), met automatische herstart en dagelijkse back-up.
 
 Geen externe afhankelijkheden: alleen Node.js 22.13 of hoger (met ingebouwde SQLite).
 
@@ -17,7 +19,7 @@ Geen externe afhankelijkheden: alleen Node.js 22.13 of hoger (met ingebouwde SQL
 npm run demo
 ```
 
-Open <http://localhost:3000>. De demo vult 8 voorbeeldproducten met 90 dagen verkoophistorie en plaatst elke ~12 seconden een gesimuleerde order op Bol.com of de webshop, zodat u de live-synchronisatie ziet. Er wordt niets naar Bol.com of de webshop gestuurd.
+Open <http://localhost:3000> en log in met `demo@tochtstripdeur.nl` / `demo-wachtwoord` (staat ook op de inlogpagina). De demo vult 8 voorbeeldproducten met 90 dagen verkoophistorie en plaatst elke ~12 seconden een gesimuleerde order op Bol.com of de webshop, zodat u de live-synchronisatie ziet. Er wordt niets naar Bol.com of de webshop gestuurd.
 
 ## Hoe het werkt
 
@@ -61,25 +63,64 @@ Voor elk product, over de gekozen periode (standaard 30 dagen, in te stellen op 
 
 ![Productdetail met voorraadverloop, prognose en verkopen per kanaal](docs/product-detail.png)
 
+## Toegang voor collega's
+
+Iedereen logt in met een eigen e-mailadres en wachtwoord, vanaf elke computer, tablet of telefoon.
+
+| Rol | Mag |
+|---|---|
+| **Alleen bekijken** | voorraad, voorspellingen, grafieken en mutaties inzien |
+| **Medewerker** | ook leveringen, voorraadtellingen en productgegevens boeken |
+| **Beheerder** | ook collega's toevoegen/blokkeren, wachtwoorden resetten en producten verwijderen |
+
+- **Eerste beheerder**: zet `ADMIN_EMAIL`, `ADMIN_NAME` en `ADMIN_PASSWORD` in `.env`; het account wordt bij de eerste start aangemaakt.
+- **Collega toevoegen**: menu rechtsboven → *Gebruikers beheren* → naam, e-mail en rol. U krijgt een tijdelijk wachtwoord om door te geven; de collega wijzigt het via *Mijn account*.
+- **Iemand vertrekt**: *Blokkeren* – de toegang stopt direct, ook op apparaten waar diegene nog ingelogd was. Eerder geboekte mutaties blijven bewaard.
+- **Wachtwoord vergeten**: een beheerder klikt *Nieuw wachtwoord*. Is de enige beheerder het wachtwoord kwijt: `npm run gebruiker -- wachtwoord <e-mail>` op de server.
+
+![Gebruikersbeheer](docs/gebruikers.png)
+
+Beveiliging: wachtwoorden worden versleuteld (scrypt) opgeslagen, sessies lopen via een beveiligde cookie (30 dagen), na 8 foute pogingen volgt een pauze van 15 minuten, en verzoeken vanaf andere websites worden geweigerd.
+
+## 24/7 online: hosting
+
+Het systeem moet op een server draaien die altijd aan staat – niet op een laptop. Dan blijven de synchronisatie en het dashboard werken, ook 's nachts en in het weekend. De server moet via **HTTPS** bereikbaar zijn (bijv. `https://voorraad.tochtstripdeur.nl`), omdat WooCommerce daar zijn meldingen naartoe stuurt.
+
+Wat er voor continu gebruik al in zit:
+
+- **Automatisch herstarten** na een storing of herstart van de server (Docker `restart: unless-stopped` + health check).
+- **Niets gemist na uitval**: gemiste Bol.com-orders worden per dag opgehaald, gemiste webshoporders via de vangnet-controle, en voorraadupdates die nog in de wachtrij stonden worden alsnog verstuurd.
+- **Dagelijkse back-up** van de database (standaard 14 dagen bewaard, in `data/backups`, bij Docker in het volume onder `/data/backups`).
+
+### Optie A: eigen server (VPS) met Docker – aanbevolen
+
+Een kleine VPS in Nederland/Duitsland (bijv. TransIP, Hetzner, DigitalOcean Amsterdam; ± €5–10 per maand, 1 GB geheugen is ruim voldoende).
+
+1. Maak een VPS aan met Ubuntu en installeer Docker (`curl -fsSL https://get.docker.com | sh`).
+2. Laat een subdomein (bijv. `voorraad.tochtstripdeur.nl`) met een **A-record** naar het IP-adres van de server wijzen (bij uw domeinbeheerder).
+3. Zet de code op de server, maak `.env` aan (`cp .env.example .env`) en vul `DOMAIN`, de beheerder en de koppelingen in.
+4. Start: `docker compose up -d --build`
+
+Caddy (zit in `docker-compose.yml`) regelt automatisch een gratis HTTPS-certificaat. Bijwerken naar een nieuwe versie: code verversen en opnieuw `docker compose up -d --build`.
+
+### Optie B: hostingplatform
+
+Platforms zoals Render, Railway of Fly.io kunnen de meegeleverde `Dockerfile` direct vanuit GitHub draaien, inclusief HTTPS. Let op: kies een **EU-regio** en koppel een **persistente schijf** op `/data` (anders gaat de database verloren bij een herstart), en draai precies **één** instantie.
+
+Gewone webhosting (waar de WordPress-webshop op staat) is meestal niet geschikt, omdat daar geen programma continu kan draaien.
+
+### Zonder Docker
+
+```bash
+cp .env.example .env      # en vul de gegevens in
+npm start                 # laat dit draaien via bijv. systemd of pm2, achter een HTTPS-proxy (TRUST_PROXY=true)
+```
+
 ## Installatie
 
 ### 1. Server
 
-Nodig: een server met Node.js 22.13+ (of Docker) die via **HTTPS** bereikbaar is, want WooCommerce moet webhooks kunnen afleveren (bijvoorbeeld `https://voorraad.tochtstripdeur.nl`).
-
-```bash
-cp .env.example .env      # en vul de gegevens in (zie hieronder)
-npm start
-```
-
-Of met Docker:
-
-```bash
-docker build -t voorraad .
-docker run -d --name voorraad --restart unless-stopped -p 3000:3000 --env-file .env -v voorraad-data:/data voorraad
-```
-
-Stel altijd `ADMIN_PASSWORD` in; het dashboard is dan beveiligd met gebruikersnaam + wachtwoord.
+Zie [24/7 online: hosting](#247-online-hosting). Vul in `.env` in elk geval de eerste beheerder in (`ADMIN_EMAIL`, `ADMIN_NAME`, `ADMIN_PASSWORD`).
 
 ### 2. Bol.com koppelen
 
@@ -149,5 +190,7 @@ npm test          # unit- en integratietests (Bol.com en WooCommerce API's gesim
 | `src/sync.js` | wachtrij die voorraad naar de kanalen stuurt, met herhaalpogingen |
 | `src/channels/bol.js` | Bol.com Retailer API (orders ophalen, voorraad bijwerken) |
 | `src/channels/woocommerce.js` | WooCommerce REST API + webhooks |
-| `src/server.js` | HTTP-API, webhook-endpoint en live-updates (Server-Sent Events) |
+| `src/server.js` | HTTP-API, login, webhook-endpoint en live-updates (Server-Sent Events) |
+| `src/auth.js` | gebruikers, rollen, wachtwoorden en sessies |
+| `src/backup.js` | dagelijkse back-up van de database |
 | `public/` | dashboard |

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Inloggen · Voorraadbeheer</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="login-page">
+  <main class="login-card">
+    <div class="brand">
+      <svg class="brand-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5v-9Z M3 7.5l9 4.5 9-4.5 M12 12v9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+      <div>
+        <h1>Voorraadbeheer</h1>
+        <p class="muted">tochtstripdeur.nl</p>
+      </div>
+    </div>
+    <form id="login" class="login-form">
+      <label>E-mailadres<input name="email" type="email" autocomplete="username" required autofocus></label>
+      <label>Wachtwoord<input name="password" type="password" autocomplete="current-password" required></label>
+      <p class="form-error" id="error" role="alert" hidden></p>
+      <button class="primary" type="submit">Inloggen</button>
+    </form>
+    <p class="muted small" id="hint">Nog geen account? Vraag een beheerder om u toe te voegen.</p>
+    <p class="explain" id="demo" hidden></p>
+  </main>
+  <script type="module" src="/login.js"></script>
+</body>
+</html>

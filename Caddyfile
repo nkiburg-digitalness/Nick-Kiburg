@@ -1,0 +1,5 @@
+# Caddy haalt automatisch een gratis HTTPS-certificaat (Let's Encrypt) op voor $DOMAIN.
+{$DOMAIN} {
+	encode gzip
+	reverse_proxy voorraad:3000
+}

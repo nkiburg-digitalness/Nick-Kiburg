@@ -10,6 +10,10 @@ const PRODUCT_FIELDS = [
   'name', 'ean', 'lead_time_days', 'safety_days', 'woo_product_id', 'woo_variation_id', 'bol_offer_id',
 ];
 
+function by(userName) {
+  return userName ? ` (door ${userName})` : '';
+}
+
 function emptyToNull(value) {
   return value === '' || value === undefined ? null : value;
 }
@@ -76,7 +80,7 @@ export class Inventory {
    * Create or update a product. When `stock` is given for a new product it is booked
    * as the opening stock; for an existing product use setStock()/adjustStock().
    */
-  upsertProduct(input) {
+  upsertProduct(input, { userName = null } = {}) {
     const sku = String(input.sku ?? '').trim();
     if (!sku) throw new ValidationError('SKU is verplicht');
     const existing = this.getProduct(sku);
@@ -93,9 +97,9 @@ export class Inventory {
           input.lead_time_days ?? 14, input.safety_days ?? 7,
           emptyToNull(input.woo_product_id), emptyToNull(input.woo_variation_id), emptyToNull(input.bol_offer_id),
         );
-        if (stock !== 0) this.#move({ sku, delta: stock, type: 'correction', channel: 'manual', note: 'Beginvoorraad' });
+        if (stock !== 0) this.#move({ sku, delta: stock, type: 'correction', channel: 'manual', note: 'Beginvoorraad', userName });
       });
-      this.bus.log('info', `Product ${sku} aangemaakt (voorraad ${stock})`, { sku });
+      this.bus.log('info', `Product ${sku} aangemaakt (voorraad ${stock})${by(userName)}`, { sku });
       this.enqueueSync(sku);
     } else {
       const sets = [];
@@ -120,8 +124,9 @@ export class Inventory {
     return product;
   }
 
-  deleteProduct(sku) {
-    this.db.prepare('DELETE FROM products WHERE sku = ?').run(sku);
+  deleteProduct(sku, { userName = null } = {}) {
+    const { changes } = this.db.prepare('DELETE FROM products WHERE sku = ?').run(sku);
+    if (changes) this.bus.log('info', `Product ${sku} verwijderd${by(userName)}`, { sku });
     this.bus.publish('product_deleted', { sku });
   }
 
@@ -189,20 +194,20 @@ export class Inventory {
   }
 
   /** Add or remove stock, e.g. goods received (type 'receipt') or breakage ('correction'). */
-  adjustStock({ sku, delta, type = 'correction', note = null }) {
+  adjustStock({ sku, delta, type = 'correction', note = null, userName = null }) {
     const d = Number.parseInt(delta, 10);
     if (!Number.isFinite(d) || d === 0) throw new ValidationError('Aantal moet een geheel getal ≠ 0 zijn');
     if (!['receipt', 'correction'].includes(type)) throw new ValidationError('Ongeldig type');
     if (!this.getProduct(sku)) throw new NotFoundError(`Onbekend product ${sku}`);
-    const movement = transaction(this.db, () => this.#move({ sku, delta: d, type, channel: 'manual', note }));
-    this.bus.log('info', `${type === 'receipt' ? 'Ontvangst' : 'Correctie'} ${d > 0 ? '+' : ''}${d} voor ${sku} → voorraad ${movement.stock_after}`, { sku });
+    const movement = transaction(this.db, () => this.#move({ sku, delta: d, type, channel: 'manual', note, userName }));
+    this.bus.log('info', `${type === 'receipt' ? 'Ontvangst' : 'Correctie'} ${d > 0 ? '+' : ''}${d} voor ${sku} → voorraad ${movement.stock_after}${by(userName)}`, { sku });
     this.enqueueSync(sku);
     this.bus.publish('product', this.getProduct(sku));
     return movement;
   }
 
   /** Stocktake: set the counted stock; the difference is booked as a correction. */
-  setStock({ sku, count, note = 'Voorraadtelling' }) {
+  setStock({ sku, count, note = 'Voorraadtelling', userName = null }) {
     const n = Number.parseInt(count, 10);
     if (!Number.isFinite(n) || n < 0) throw new ValidationError('Telling moet 0 of hoger zijn');
     const product = this.getProduct(sku);
@@ -211,7 +216,7 @@ export class Inventory {
       this.enqueueSync(sku); // still re-push, useful to repair a channel
       return null;
     }
-    return this.adjustStock({ sku, delta: n - product.stock, type: 'correction', note });
+    return this.adjustStock({ sku, delta: n - product.stock, type: 'correction', note, userName });
   }
 
   movements(sku, limit = 100) {
@@ -229,7 +234,7 @@ export class Inventory {
     this.bus.emit('sync_requested');
   }
 
-  #move({ sku, delta, type, channel, lineRef = null, note = null, applied = true, createdAt }) {
+  #move({ sku, delta, type, channel, lineRef = null, note = null, applied = true, createdAt, userName = null }) {
     let stockAfter = null;
     if (applied) {
       const row = this.db.prepare(`
@@ -240,10 +245,10 @@ export class Inventory {
       stockAfter = row.stock;
     }
     return this.db.prepare(`
-      INSERT INTO stock_movements (sku, delta, stock_after, type, channel, line_ref, applied, note, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, strftime('%Y-%m-%dT%H:%M:%fZ','now')))
+      INSERT INTO stock_movements (sku, delta, stock_after, type, channel, line_ref, applied, note, user_name, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, strftime('%Y-%m-%dT%H:%M:%fZ','now')))
       RETURNING *
-    `).get(sku, delta, stockAfter, type, channel, lineRef, applied ? 1 : 0, note, createdAt ?? null);
+    `).get(sku, delta, stockAfter, type, channel, lineRef, applied ? 1 : 0, note, userName, createdAt ?? null);
   }
 }
 

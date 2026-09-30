@@ -12,6 +12,7 @@
     "demo": "node --disable-warning=ExperimentalWarning scripts/demo.js",
     "seed:demo": "node --disable-warning=ExperimentalWarning scripts/demo.js --seed-only",
     "import": "node --disable-warning=ExperimentalWarning scripts/import-csv.js",
+    "gebruiker": "node --disable-warning=ExperimentalWarning scripts/user.js",
     "backfill": "node --disable-warning=ExperimentalWarning scripts/backfill.js",
     "test": "node --disable-warning=ExperimentalWarning --test \"test/**/*.test.js\""
   }

@@ -11,6 +11,7 @@
  *       by SKU, taking over the current webshop stock for new products.
  */
 import { readFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 import { config } from '../src/config.js';
 import { createApp } from '../src/app.js';
 
@@ -92,7 +93,7 @@ async function main() {
   app.stop();
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((err) => {
     console.error(err.message);
     process.exit(1);

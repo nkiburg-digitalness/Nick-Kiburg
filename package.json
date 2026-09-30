@@ -9,8 +9,8 @@
   },
   "scripts": {
     "start": "node --disable-warning=ExperimentalWarning src/index.js",
-    "demo": "DEMO_MODE=true node --disable-warning=ExperimentalWarning scripts/seed-demo.js && DEMO_MODE=true node --disable-warning=ExperimentalWarning src/index.js",
-    "seed:demo": "DEMO_MODE=true node --disable-warning=ExperimentalWarning scripts/seed-demo.js",
+    "demo": "node --disable-warning=ExperimentalWarning scripts/demo.js",
+    "seed:demo": "node --disable-warning=ExperimentalWarning scripts/demo.js --seed-only",
     "import": "node --disable-warning=ExperimentalWarning scripts/import-csv.js",
     "backfill": "node --disable-warning=ExperimentalWarning scripts/backfill.js",
     "test": "node --disable-warning=ExperimentalWarning --test \"test/**/*.test.js\""

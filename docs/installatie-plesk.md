@@ -67,8 +67,8 @@ Zet uw wachtwoorden en API-sleutels liever niet in een supportticket. Maak het b
 Het inlezen van producten doet Snel.com (of iemand met SSH-toegang) in de app-map met:
 
 ```bash
-docker compose -f docker-compose.plesk.yml exec voorraad node --disable-warning=ExperimentalWarning scripts/import-csv.js --woocommerce
-docker compose -f docker-compose.plesk.yml exec voorraad node --disable-warning=ExperimentalWarning scripts/backfill.js
+docker compose -f docker-compose.plesk.yml exec -u node voorraad node --disable-warning=ExperimentalWarning scripts/import-csv.js --woocommerce
+docker compose -f docker-compose.plesk.yml exec -u node voorraad node --disable-warning=ExperimentalWarning scripts/backfill.js
 ```
 
 ## Onderhoud
@@ -79,7 +79,7 @@ docker compose -f docker-compose.plesk.yml exec voorraad node --disable-warning=
 | Logboek bekijken | `docker logs --tail 200 voorraad` (of de activiteitenlijst in het dashboard) |
 | Back-ups | automatisch elke dag in `/opt/voorraad-data/backups` (14 dagen bewaard) |
 | Terugzetten van een back-up | container stoppen, `voorraad.db` vervangen door een back-upbestand, container starten |
-| Wachtwoord beheerder kwijt | `docker compose -f docker-compose.plesk.yml exec voorraad node scripts/user.js wachtwoord <e-mail>` |
+| Wachtwoord beheerder kwijt | `docker compose -f docker-compose.plesk.yml exec -u node voorraad node scripts/user.js wachtwoord <e-mail>` |
 
 ## Alternatief zonder Docker
 

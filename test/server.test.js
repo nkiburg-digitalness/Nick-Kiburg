@@ -209,3 +209,29 @@ test('stock can be received and counted through the API', async () => {
     close();
   }
 });
+
+test('products can be exported and imported as CSV from the dashboard', async () => {
+  const { app, loggedIn, close } = await start();
+  try {
+    const admin = await loggedIn();
+    app.inventory.upsertProduct({ sku: 'TS-1', name: 'Tochtstrip', stock: 5 });
+    const exported = await admin('/api/export/products.csv');
+    assert.equal(exported.status, 200);
+    assert.match(exported.headers.get('content-disposition'), /attachment; filename="producten-/);
+    assert.match(exported.data, /^sku;name;ean;stock/); // fetch strips the BOM when decoding
+
+    const csv = 'sku;name;ean;lead_time_days\nTS-1;Tochtstrip;8712345678901;21\nTS-2;Valdorpel;;14\n';
+    const res = await admin('/api/import/csv', { method: 'POST', body: { csv } });
+    assert.deepEqual(res.data, { created: 1, updated: 1, skipped: [] });
+    assert.equal(app.inventory.getProduct('TS-1').ean, '8712345678901');
+    assert.equal(app.inventory.getProduct('TS-1').lead_time_days, 21);
+
+    // Importing is reserved for beheerders.
+    const added = await admin('/api/users', { method: 'POST', body: { name: 'Sanne', email: 'sanne@example.nl', role: 'medewerker' } });
+    const sanne = await loggedIn('sanne@example.nl', added.data.password);
+    assert.equal((await sanne('/api/import/csv', { method: 'POST', body: { csv } })).status, 403);
+    assert.equal((await sanne('/api/export/products.csv')).status, 200);
+  } finally {
+    close();
+  }
+});

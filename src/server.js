@@ -6,6 +6,7 @@ import { forecastAll, productHistory } from './forecast.js';
 import { hasRole, parseCookies, generatePassword, ROLES, SESSION_COOKIE, AuthError } from './auth.js';
 import { CHANNEL_LABELS } from './inventory.js';
 import { getKv } from './db.js';
+import { parseCsv, productsToCsv, importRows, importFromWooCommerce } from './importer.js';
 
 const PUBLIC_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'public');
 // [file, content type, needs login]
@@ -167,6 +168,37 @@ export function createHttpServer(app) {
       send(res, 200, poller.status());
     }],
     ['GET', /^\/api\/log$/, 'kijker', (req, res) => send(res, 200, bus.recentLog(150))],
+
+    // --- import / export
+    ['GET', /^\/api\/export\/products\.csv$/, 'kijker', (req, res) => {
+      send(res, 200, productsToCsv(inventory.listProducts()), {
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': `attachment; filename="producten-${new Date().toISOString().slice(0, 10)}.csv"`,
+      });
+    }],
+    ['POST', /^\/api\/import\/csv$/, 'beheerder', async (req, res, _m, _u, user) => {
+      const { csv } = await readJson(req);
+      const result = importRows(inventory, parseCsv(csv), { userName: user.name });
+      bus.log('info', `CSV-import door ${user.name}: ${result.created} nieuw, ${result.updated} bijgewerkt`);
+      send(res, 200, result);
+    }],
+    ['POST', /^\/api\/import\/woocommerce$/, 'beheerder', async (req, res, _m, _u, user) => {
+      if (typeof channels.woocommerce?.listProducts !== 'function') throw new AuthError('WooCommerce is nog niet gekoppeld: vul eerst WOO_CONSUMER_KEY en WOO_CONSUMER_SECRET in bij de instellingen van de server', 400);
+      const result = await importFromWooCommerce(inventory, channels.woocommerce, { userName: user.name });
+      bus.log('info', `Producten uit de webshop overgenomen door ${user.name}: ${result.created} nieuw, ${result.updated} bijgewerkt`);
+      send(res, 200, result);
+    }],
+    ['POST', /^\/api\/backfill$/, 'beheerder', async (req, res, _m, _u, user) => {
+      const days = Math.min(90, Math.max(1, Number.parseInt((await readJson(req)).days, 10) || 90));
+      const result = {};
+      for (const [name, channel] of Object.entries(channels)) {
+        if (typeof channel.backfill === 'function') result[name] = await channel.backfill(inventory, days);
+      }
+      if (!Object.keys(result).length) throw new AuthError('Er is nog geen kanaal gekoppeld: vul eerst de sleutels van Bol.com en/of WooCommerce in bij de instellingen van de server', 400);
+      bus.log('info', `Verkoophistorie (${days} dagen) ingelezen door ${user.name}`);
+      bus.publish('product', null);
+      send(res, 200, { days, orderLines: result });
+    }],
 
     // --- own account
     ['GET', /^\/api\/me$/, 'kijker', (req, res, _m, _u, user) => {

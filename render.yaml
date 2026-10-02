@@ -1,0 +1,41 @@
+# Render Blueprint: Render → New → Blueprint → kies deze repository.
+# Zie docs/installatie-render.md voor de stappen.
+services:
+  - type: web
+    name: voorraadbeheer
+    runtime: docker
+    plan: starter            # altijd aan (de gratis variant valt in slaap en is niet geschikt)
+    region: frankfurt        # gegevens blijven in de EU
+    branch: claude/inventory-management-realtime-sync-axcymf
+    healthCheckPath: /health
+    disk:
+      name: voorraad-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: DB_FILE
+        value: /data/voorraad.db
+      - key: BACKUP_DIR
+        value: /data/backups
+      - key: TRUST_PROXY
+        value: "true"
+      # Eerste beheerder (wordt bij de eerste start aangemaakt)
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_NAME
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      # Koppelingen – mogen eerst leeg blijven en later worden ingevuld
+      - key: BOL_CLIENT_ID
+        sync: false
+      - key: BOL_CLIENT_SECRET
+        sync: false
+      - key: WOO_BASE_URL
+        value: https://tochtstripdeur.nl
+      - key: WOO_CONSUMER_KEY
+        sync: false
+      - key: WOO_CONSUMER_SECRET
+        sync: false
+      - key: WOO_WEBHOOK_SECRET
+        generateValue: true

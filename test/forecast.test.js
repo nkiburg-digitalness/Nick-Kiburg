@@ -67,10 +67,31 @@ test('forecastAll reads the ledger, including history-only sales', () => {
 });
 
 test('CSV import parses semicolons and quoted fields', async () => {
-  const { parseCsv } = await import('../scripts/import-csv.js');
+  const { parseCsv } = await import('../src/importer.js');
   const rows = parseCsv('sku;name;stock\r\nA;"Strip; wit ""extra""";5\nB;Borstel;\n');
   assert.deepEqual(rows, [
     { sku: 'A', name: 'Strip; wit "extra"', stock: '5' },
     { sku: 'B', name: 'Borstel', stock: '' },
   ]);
+});
+
+test('CSV export can be read back by the import', async () => {
+  const { parseCsv, productsToCsv, importRows } = await import('../src/importer.js');
+  const { setup } = await import('./helpers.js');
+  const { inventory } = setup();
+  inventory.upsertProduct({ sku: 'A', name: 'Strip; "wit"', ean: '871', stock: 4, lead_time_days: 10 });
+  const csv = productsToCsv(inventory.listProducts());
+  assert.ok(csv.startsWith('\uFEFFsku;name;'), 'BOM + semicolons for Dutch Excel');
+  const rows = parseCsv(csv);
+  assert.equal(rows[0].name, 'Strip; "wit"');
+  assert.equal(rows[0].lead_time_days, '10');
+
+  rows[0].ean = '872';
+  rows[0].stock = '9';
+  rows.push({ sku: 'B', name: 'Nieuw', stock: '3' }, { sku: 'C', name: '' });
+  const result = importRows(inventory, rows, { userName: 'Nick' });
+  assert.deepEqual([result.created, result.updated, result.skipped.length], [1, 1, 1]);
+  assert.equal(inventory.getProduct('A').ean, '872');
+  assert.equal(inventory.getProduct('A').stock, 9);
+  assert.equal(inventory.getProduct('B').stock, 3);
 });

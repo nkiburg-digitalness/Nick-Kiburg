@@ -749,6 +749,10 @@ function bindUserMenu() {
       location.href = '/login';
     } else if (action === 'users') {
       openUsers();
+    } else if (action === 'import') {
+      $('#import-result').hidden = true;
+      $('#import-error').hidden = true;
+      $('#import-dialog').showModal();
     } else if (action === 'account') {
       const dialog = $('#account-dialog');
       $('#account-form').reset();
@@ -780,6 +784,62 @@ function bindUserMenu() {
     } catch (ex) {
       err.textContent = ex.message;
       err.hidden = false;
+    }
+  });
+
+  const importDialog = $('#import-dialog');
+  const showImport = (html, isError = false) => {
+    $('#import-result').hidden = isError;
+    $('#import-error').hidden = !isError;
+    $(isError ? '#import-error' : '#import-result').innerHTML = html;
+  };
+  const summary = (r) => `${r.created} nieuw, ${r.updated} bijgewerkt.${r.skipped.length
+    ? `<br>Overgeslagen (${r.skipped.length}):<br>${r.skipped.slice(0, 20).map(esc).join('<br>')}${r.skipped.length > 20 ? '<br>…' : ''}` : ''}`;
+  const runImport = async (button, fn) => {
+    button.disabled = true;
+    showImport('Bezig…');
+    try {
+      showImport(await fn());
+      await load();
+    } catch (ex) {
+      showImport(esc(ex.message), true);
+    } finally {
+      button.disabled = false;
+    }
+  };
+  importDialog.addEventListener('click', (e) => {
+    if (e.target === importDialog || e.target.closest('[data-close]')) return importDialog.close();
+    const button = e.target.closest('[data-import]');
+    if (!button) return;
+    if (button.dataset.import === 'woocommerce') {
+      runImport(button, async () => `Producten uit de webshop: ${summary(await api('/api/import/woocommerce', { method: 'POST' }))}`);
+    } else if (button.dataset.import === 'backfill') {
+      runImport(button, async () => {
+        const r = await api('/api/backfill', { method: 'POST', body: { days: 90 } });
+        const parts = Object.entries(r.orderLines).map(([c, n]) => `${CHANNELS[c] ?? c}: ${n} orderregels`);
+        return `Verkoophistorie van ${r.days} dagen ingelezen. ${parts.join(', ')}.`;
+      });
+    }
+  });
+  $('#csv-file').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    const label = e.target.closest('label');
+    label.style.pointerEvents = 'none';
+    showImport('Bezig…');
+    try {
+      // Excel saves "CSV" as Windows-1252 unless "CSV UTF-8" is chosen; handle both.
+      const bytes = await file.arrayBuffer();
+      let csv = new TextDecoder('utf-8').decode(bytes);
+      if (csv.includes('\uFFFD')) csv = new TextDecoder('windows-1252').decode(bytes);
+      const r = await api('/api/import/csv', { method: 'POST', body: { csv } });
+      showImport(`${esc(file.name)}: ${summary(r)}`);
+      await load();
+    } catch (ex) {
+      showImport(esc(ex.message), true);
+    } finally {
+      label.style.pointerEvents = '';
     }
   });
 

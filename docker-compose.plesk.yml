@@ -2,7 +2,7 @@
 # Plesk (nginx) regelt het webadres en HTTPS en stuurt het verkeer door naar dit programma,
 # dat alleen lokaal bereikbaar is (127.0.0.1) – niet rechtstreeks vanaf internet.
 #
-#   mkdir -p /opt/voorraad-data && chown 1000:1000 /opt/voorraad-data
+#   mkdir -p /opt/voorraad-data
 #   docker compose -f docker-compose.plesk.yml up -d --build
 #
 # Zie docs/installatie-plesk.md voor de volledige stappen.

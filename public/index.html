@@ -22,6 +22,7 @@
       <div class="menu" id="user-dropdown" role="menu" hidden>
         <div class="menu-head"><b id="menu-name"></b><span class="muted small" id="menu-role"></span></div>
         <button role="menuitem" data-menu="users" data-min-role="beheerder">Gebruikers beheren</button>
+        <button role="menuitem" data-menu="import">Importeren / exporteren</button>
         <button role="menuitem" data-menu="account">Mijn account</button>
         <button role="menuitem" data-menu="logout">Uitloggen</button>
       </div>
@@ -137,6 +138,39 @@
       </form>
       <p class="explain" id="new-password" hidden></p>
       <p class="form-error" id="users-error" hidden></p>
+    </div>
+  </dialog>
+
+  <dialog class="modal" id="import-dialog">
+    <div class="users-inner">
+      <div class="drawer-head">
+        <div class="grow"><h2>Importeren / exporteren</h2><p class="muted small">Producten in één keer inlezen of bijwerken.</p></div>
+        <button class="close" data-close aria-label="Sluiten">×</button>
+      </div>
+
+      <section class="mini-form" data-min-role="beheerder">
+        <h3>1. Producten overnemen uit de webshop</h3>
+        <p class="muted small">Haalt alle producten (ook variaties) uit WooCommerce en koppelt ze op SKU. Nieuwe producten krijgen de huidige webshopvoorraad; bestaande producten houden hun voorraad.</p>
+        <div class="actions" style="justify-content:flex-start"><button class="primary" data-import="woocommerce">Producten uit webshop overnemen</button></div>
+      </section>
+
+      <section class="mini-form">
+        <h3>2. Productgegevens aanvullen via Excel</h3>
+        <p class="muted small">Download de lijst, vul in Excel bijvoorbeeld EAN, levertijd en veiligheidsmarge aan, sla op als CSV en upload hem weer. Een ingevulde voorraad wordt als telling geboekt.</p>
+        <div class="actions" style="justify-content:flex-start">
+          <a class="button" href="/api/export/products.csv" download>Productlijst downloaden</a>
+          <label class="button primary file-button" data-min-role="beheerder">CSV uploaden<input type="file" id="csv-file" accept=".csv,text/csv" hidden></label>
+        </div>
+      </section>
+
+      <section class="mini-form" data-min-role="beheerder">
+        <h3>3. Verkoophistorie inlezen</h3>
+        <p class="muted small">Leest de orders van de afgelopen 90 dagen uit Bol.com en de webshop, zodat de voorspelling meteen klopt. De voorraad verandert hierdoor niet. Eén keer doen bij de start is genoeg.</p>
+        <div class="actions" style="justify-content:flex-start"><button data-import="backfill">Verkoophistorie inlezen</button></div>
+      </section>
+
+      <p class="explain" id="import-result" hidden></p>
+      <p class="form-error" id="import-error" hidden></p>
     </div>
   </dialog>
 

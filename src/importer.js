@@ -1,0 +1,104 @@
+/**
+ * Product import/export, shared by the command line scripts and the dashboard.
+ */
+
+export const CSV_COLUMNS = ['sku', 'name', 'ean', 'stock', 'lead_time_days', 'safety_days', 'woo_product_id', 'woo_variation_id', 'bol_offer_id'];
+const LINK_FIELDS = CSV_COLUMNS.filter((c) => !['sku', 'stock'].includes(c));
+
+export function parseCsv(text) {
+  text = String(text ?? '').replace(/^﻿/, '');
+  const firstLine = text.split(/\r?\n/, 1)[0];
+  const sep = (firstLine.match(/;/g) ?? []).length > (firstLine.match(/,/g) ?? []).length ? ';' : ',';
+  const rows = [];
+  let row = [];
+  let field = '';
+  let quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (quoted) {
+      if (c === '"' && text[i + 1] === '"') { field += '"'; i++; }
+      else if (c === '"') quoted = false;
+      else field += c;
+    } else if (c === '"') quoted = true;
+    else if (c === sep) { row.push(field); field = ''; }
+    else if (c === '\n' || c === '\r') {
+      if (c === '\r' && text[i + 1] === '\n') i++;
+      row.push(field); field = '';
+      if (row.some((v) => v.trim() !== '')) rows.push(row);
+      row = [];
+    } else field += c;
+  }
+  row.push(field);
+  if (row.some((v) => v.trim() !== '')) rows.push(row);
+  if (!rows.length) return [];
+  const [header, ...data] = rows;
+  const keys = header.map((h) => h.trim().toLowerCase());
+  return data.map((r) => Object.fromEntries(keys.map((k, i) => [k, (r[i] ?? '').trim()])));
+}
+
+/** Semicolon-separated with BOM, so it opens correctly in Dutch Excel. */
+export function productsToCsv(products) {
+  const cell = (v) => {
+    const s = v === null || v === undefined ? '' : String(v);
+    return /[";\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const lines = [CSV_COLUMNS.join(';'), ...products.map((p) => CSV_COLUMNS.map((c) => cell(p[c])).join(';'))];
+  return `﻿${lines.join('\r\n')}\r\n`;
+}
+
+/**
+ * Create or update products from CSV rows. A filled "stock" on an existing product
+ * is booked as a stocktake.
+ */
+export function importRows(inventory, rows, { userName = null } = {}) {
+  const result = { created: 0, updated: 0, skipped: [] };
+  if (rows.length && !('sku' in rows[0])) throw Object.assign(new Error('Kolom "sku" ontbreekt in het bestand'), { status: 400 });
+  for (const [i, row] of rows.entries()) {
+    if (!row.sku) continue;
+    const fields = { sku: row.sku };
+    for (const key of LINK_FIELDS) {
+      if (row[key] !== undefined && row[key] !== '') fields[key] = row[key];
+    }
+    try {
+      if (!inventory.getProduct(row.sku)) {
+        if (!fields.name) throw new Error('naam ontbreekt');
+        inventory.upsertProduct({ ...fields, stock: row.stock || 0 }, { userName });
+        result.created++;
+      } else {
+        inventory.upsertProduct(fields, { userName });
+        if (row.stock !== undefined && row.stock !== '') {
+          inventory.setStock({ sku: row.sku, count: row.stock, note: 'Import', userName });
+        }
+        result.updated++;
+      }
+    } catch (err) {
+      result.skipped.push(`regel ${i + 2} (${row.sku}): ${err.message}`);
+    }
+  }
+  return result;
+}
+
+/**
+ * Take over all webshop products (incl. variations) and link them by SKU. New products
+ * start with the current webshop stock; existing products keep their stock.
+ */
+export async function importFromWooCommerce(inventory, woo, { userName = null } = {}) {
+  const result = { created: 0, updated: 0, skipped: [] };
+  for (const p of await woo.listProducts()) {
+    if (!p.sku) {
+      result.skipped.push(`${p.name} (#${p.woo_product_id}): geen SKU in de webshop`);
+      continue;
+    }
+    const exists = inventory.getProduct(p.sku);
+    inventory.upsertProduct({
+      sku: p.sku,
+      name: exists?.name ?? p.name,
+      woo_product_id: p.woo_product_id,
+      woo_variation_id: p.woo_variation_id,
+      ...(exists ? {} : { stock: p.stock ?? 0 }),
+    }, { userName });
+    if (exists) result.updated++;
+    else result.created++;
+  }
+  return result;
+}

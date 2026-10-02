@@ -92,13 +92,17 @@ Wat er voor continu gebruik al in zit:
 - **Niets gemist na uitval**: gemiste Bol.com-orders worden per dag opgehaald, gemiste webshoporders via de vangnet-controle, en voorraadupdates die nog in de wachtrij stonden worden alsnog verstuurd.
 - **Dagelijkse back-up** van de database (standaard 14 dagen bewaard, in `data/backups`, bij Docker in het volume onder `/data/backups`).
 
-### Bestaande VPS met Plesk (bijv. Snel.com)
+### Optie A: Render – zelf te regelen, geen serverbeheer (aanbevolen)
 
-Draait de webshop al op een VPS met Plesk? Dan kan het voorraadbeheer daar naast de webshop draaien, op een eigen subdomein en begrensd in geheugen en processorkracht. Volg **[docs/installatie-plesk.md](docs/installatie-plesk.md)**; daarin staat ook een kant-en-klaar bericht voor de support van een managed VPS.
+Alles via de website van Render, zonder commando's: het meegeleverde `render.yaml` stelt de server, de EU-regio (Frankfurt), de opslag en de back-ups automatisch in. Ongeveer $7–8 per maand. Volg **[docs/installatie-render.md](docs/installatie-render.md)**.
 
-### Optie A: eigen server (VPS) met Docker – aanbevolen
+### Optie B: bestaande VPS met Plesk (bijv. Snel.com)
 
-Een kleine VPS in Nederland/Duitsland (bijv. TransIP, Hetzner, DigitalOcean Amsterdam; ± €5–10 per maand, 1 GB geheugen is ruim voldoende).
+Draait de webshop op een VPS met Plesk en mag daar Docker op? Dan kan het voorraadbeheer naast de webshop draaien, op een eigen subdomein en begrensd in geheugen en processorkracht. Bij een managed VPS moet de hostingpartij hieraan meewerken. Volg **[docs/installatie-plesk.md](docs/installatie-plesk.md)**.
+
+### Optie C: eigen server (VPS) met Docker
+
+Een kleine VPS in Nederland/Duitsland (bijv. TransIP, Hetzner, DigitalOcean Amsterdam; ± €5–10 per maand, 1 GB geheugen is ruim voldoende), voor wie zelf een server kan beheren.
 
 1. Maak een VPS aan met Ubuntu en installeer Docker (`curl -fsSL https://get.docker.com | sh`).
 2. Laat een subdomein (bijv. `voorraad.tochtstripdeur.nl`) met een **A-record** naar het IP-adres van de server wijzen (bij uw domeinbeheerder).
@@ -107,9 +111,7 @@ Een kleine VPS in Nederland/Duitsland (bijv. TransIP, Hetzner, DigitalOcean Amst
 
 Caddy (zit in `docker-compose.yml`) regelt automatisch een gratis HTTPS-certificaat. Bijwerken naar een nieuwe versie: code verversen en opnieuw `docker compose up -d --build`.
 
-### Optie B: hostingplatform
-
-Platforms zoals Render, Railway of Fly.io kunnen de meegeleverde `Dockerfile` direct vanuit GitHub draaien, inclusief HTTPS. Let op: kies een **EU-regio** en koppel een **persistente schijf** op `/data` (anders gaat de database verloren bij een herstart), en draai precies **één** instantie.
+Andere platforms (Railway, Fly.io) kunnen de `Dockerfile` ook draaien. Kies daar een **EU-regio**, koppel een **persistente schijf** op `/data` en draai precies **één** instantie.
 
 Gewone webhosting (waar de WordPress-webshop op staat) is meestal niet geschikt, omdat daar geen programma continu kan draaien.
 
@@ -143,6 +145,14 @@ Zie [24/7 online: hosting](#247-online-hosting). Vul in `.env` in elk geval de e
 3. Zorg dat bij elk product in WooCommerce **"Voorraad beheren"** aan staat en dat de **SKU** is ingevuld (wordt ook automatisch aangezet bij de eerste synchronisatie).
 
 ### 4. Producten inlezen en live gaan
+
+Het makkelijkst via het dashboard: menu rechtsboven → **Importeren / exporteren**:
+
+1. **Producten uit webshop overnemen** (gekoppeld op SKU).
+2. **Productlijst downloaden**, in Excel EAN, levertijd en veiligheidsmarge aanvullen, en als CSV weer **uploaden**.
+3. **Verkoophistorie inlezen** (90 dagen, verandert de voorraad niet).
+
+Of op de commandoregel:
 
 ```bash
 # Optie A: alle producten (incl. variaties) uit de webshop overnemen, gekoppeld op SKU

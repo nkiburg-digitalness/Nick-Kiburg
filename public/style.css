@@ -230,6 +230,15 @@ table.products { width: 100%; border-collapse: collapse; }
 .users-table tr.disabled td:not(:last-child) { opacity: 0.55; }
 .password-box { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 15px; font-weight: 600; user-select: all; }
 
+a.button {
+  display: inline-flex; align-items: center; border: 1px solid var(--border); background: var(--surface);
+  border-radius: 8px; padding: 7px 12px; color: var(--text); text-decoration: none; cursor: pointer;
+}
+a.button:hover { background: var(--surface-2); }
+label.button { display: inline-flex; align-items: center; border-radius: 8px; padding: 7px 12px; cursor: pointer; border: 1px solid var(--border); }
+label.button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+button:disabled { opacity: 0.6; cursor: progress; }
+
 /* Login */
 .login-page { min-height: 100vh; display: grid; place-items: center; padding: 16px; }
 .login-card {

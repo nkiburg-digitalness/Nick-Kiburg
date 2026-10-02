@@ -94,7 +94,7 @@ Wat er voor continu gebruik al in zit:
 
 ### Optie A: Render – zelf te regelen, geen serverbeheer (aanbevolen)
 
-Alles via de website van Render, zonder commando's: het meegeleverde `render.yaml` stelt de server, de EU-regio (Frankfurt), de opslag en de back-ups automatisch in. Ongeveer $7–8 per maand. Volg **[docs/installatie-render.md](docs/installatie-render.md)**.
+Alles via de website van Render, zonder commando's: het meegeleverde `render.yaml` stelt de server, de EU-regio (Frankfurt), de opslag en de back-ups automatisch in. $7,25 per maand (Starter-server $7 + 1 GB opslag $0,25; de Hobby-workspace is gratis). Volg **[docs/installatie-render.md](docs/installatie-render.md)**.
 
 ### Optie B: bestaande VPS met Plesk (bijv. Snel.com)
 

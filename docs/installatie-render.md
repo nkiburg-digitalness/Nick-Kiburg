@@ -2,7 +2,18 @@
 
 Met deze route heeft u geen eigen server of hulp van een hostingpartij nodig. [Render](https://render.com) draait het voorraadbeheer 24/7, regelt HTTPS en start het programma vanzelf opnieuw op als er iets misgaat. Alles gaat via de website van Render; u hoeft geen commando's te typen.
 
-- **Kosten:** het *Starter*-abonnement (altijd aan) plus 1 GB opslag, samen ongeveer $7–8 per maand. Controleer de actuele prijzen op render.com. Kies **niet** de gratis variant: die valt in slaap en haalt dan geen Bol.com-orders meer op.
+- **Kosten:** **$7,25 per maand** (prijzen per oktober 2026, exclusief btw):
+
+  | Onderdeel | Prijs | Nodig | Per maand |
+  |---|---|---|---|
+  | Workspace *Hobby* | gratis | 1 Render-account is genoeg (collega's loggen in op het dashboard, niet bij Render) | $0 |
+  | Server *Starter* (512 MB, 0,5 CPU, altijd aan) | $7 | 1 | $7,00 |
+  | Opslag (persistent disk) | $0,25 per GB | 1 GB (database + 14 dagelijkse back-ups, ruim voldoende) | $0,25 |
+  | Dataverkeer | 5 GB inbegrepen, daarna $0,15/GB | ± 0,3 GB (alles wordt gecomprimeerd) | $0 |
+  | Build-minuten (installeren van updates) | 500 inbegrepen | enkele minuten per update | $0 |
+  | Task runs / Workflows, databases, cron jobs | per gebruik | niet gebruikt | $0 |
+
+  Render rekent per seconde af. Kies **niet** de gratis *Free*-server: die valt na 15 minuten zonder bezoek in slaap en haalt dan geen Bol.com-orders meer op.
 - **Locatie:** Frankfurt (EU). Er worden geen klantgegevens opgeslagen, alleen ordernummers, artikelnummers en aantallen, plus de namen en e-mailadressen van uw collega's.
 - **Webshop:** blijft gewoon bij Snel.com. Er verandert niets aan.
 

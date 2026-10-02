@@ -235,3 +235,16 @@ test('products can be exported and imported as CSV from the dashboard', async ()
     close();
   }
 });
+
+test('larger responses are gzip-compressed to save bandwidth', async () => {
+  const { base, close } = await start();
+  try {
+    const res = await fetch(`${base}/style.css`, { headers: { 'Accept-Encoding': 'gzip' } });
+    assert.equal(res.headers.get('content-encoding'), 'gzip');
+    assert.match(await res.text(), /--surface/); // fetch decompresses transparently
+    const plain = await fetch(`${base}/health`);
+    assert.equal(plain.headers.get('content-encoding'), null, 'tiny responses stay uncompressed');
+  } finally {
+    close();
+  }
+});

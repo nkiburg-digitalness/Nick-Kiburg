@@ -589,6 +589,16 @@ function connectEvents() {
       while (list.children.length > 150) list.lastChild.remove();
       return;
     }
+    if (event.type === 'poll') {
+      // A routine order check: only the channel status changes, no need to reload all products.
+      const channel = state.data?.channels.find((c) => c.name === event.payload.channel);
+      if (channel) {
+        channel.lastPollAt = event.payload.lastRunAt ?? channel.lastPollAt;
+        channel.lastError = event.payload.lastError;
+        renderChannels();
+      }
+      return;
+    }
     const sku = event.payload?.sku;
     if (sku && event.type === 'product') {
       state.flash.add(sku);

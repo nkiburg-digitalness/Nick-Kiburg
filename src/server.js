@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { gzipSync } from 'node:zlib';
 import { readFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -26,13 +27,23 @@ const MAX_BODY = 2 * 1024 * 1024;
 
 function send(res, status, body, headers = {}) {
   const isJson = typeof body !== 'string' && !Buffer.isBuffer(body);
+  let payload = Buffer.from(isJson ? JSON.stringify(body) : body);
+  const extra = {};
+  // Compress larger responses: keeps hosting bandwidth (and mobile data) low.
+  if (res.acceptsGzip && payload.length > 1024) {
+    payload = gzipSync(payload);
+    extra['Content-Encoding'] = 'gzip';
+    extra.Vary = 'Accept-Encoding';
+  }
   res.writeHead(status, {
     'Content-Type': isJson ? 'application/json; charset=utf-8' : 'text/plain; charset=utf-8',
+    'Content-Length': payload.length,
     'Cache-Control': 'no-store',
     ...SECURITY_HEADERS,
     ...headers,
+    ...extra,
   });
-  res.end(isJson ? JSON.stringify(body) : body);
+  res.end(payload);
 }
 
 function redirect(res, location) {
@@ -297,6 +308,7 @@ export function createHttpServer(app) {
 
   return createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
+    res.acceptsGzip = /\bgzip\b/.test(String(req.headers['accept-encoding'] ?? ''));
     try {
       if (url.pathname === '/health') return send(res, 200, { ok: true });
       if (req.method === 'POST' && url.pathname === '/webhooks/woocommerce') return await wooWebhook(req, res);

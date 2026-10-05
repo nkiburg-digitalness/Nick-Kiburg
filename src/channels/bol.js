@@ -146,7 +146,7 @@ export class BolChannel {
   /** Import historical orders (up to 3 months) for the forecast without touching stock. */
   async backfill(inventory, days = 90, now = new Date()) {
     const orders = [];
-    for (const day of daysBetween(new Date(now.getTime() - days * DAY_MS), now, 90)) {
+    for (const day of daysBetween(new Date(now.getTime() - days * DAY_MS), now, BOL_HISTORY_DAYS)) {
       orders.push(...await this.listOrders({ status: 'ALL', 'latest-change-date': day }));
     }
     return this.bookOrders(inventory, orders, { applyToStock: false });
@@ -233,6 +233,9 @@ export class BolChannel {
 }
 
 /** YYYY-MM-DD dates from `from` to `to` inclusive (at most `maxDays`, most recent kept). */
+/** Bol.com only returns orders of the last 3 months. */
+export const BOL_HISTORY_DAYS = 90;
+
 export function daysBetween(from, to, maxDays) {
   const days = [];
   const start = Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate());

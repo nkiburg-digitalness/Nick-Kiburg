@@ -1125,9 +1125,10 @@ function bindUserMenu() {
       });
     } else if (button.dataset.import === 'backfill') {
       runImport(button, async () => {
-        const r = await api(`${shopBase(importShop())}/backfill`, { method: 'POST', body: { days: 90 } });
-        const parts = Object.entries(r.orderLines).map(([c, n]) => `${CHANNELS[c] ?? c}: ${n} orderregels`);
-        return `Verkoophistorie van ${r.days} dagen ingelezen. ${parts.join(', ')}.`;
+        showImport('Bezig met inlezen… bij een heel jaar kan dit een paar minuten duren.');
+        const r = await api(`${shopBase(importShop())}/backfill`, { method: 'POST', body: { days: Number($('#backfill-days').value) } });
+        const parts = Object.entries(r.orderLines).map(([c, n]) => `${CHANNELS[c] ?? c}: ${n} orderregels (${r.channelDays?.[c] ?? r.days} dagen)`);
+        return `Verkoophistorie ingelezen. ${parts.join(', ')}.${r.channelDays?.bol < r.days ? ' Bol.com geeft maximaal de laatste 3 maanden vrij.' : ''}`;
       });
     }
   });

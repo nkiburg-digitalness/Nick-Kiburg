@@ -77,7 +77,7 @@ Welke orders tellen mee?
 
 ## De voorspelling
 
-Voor elk product, over de gekozen periode (standaard 30 dagen, in te stellen op 7–90 dagen):
+Voor elk product, over de gekozen periode (standaard 30 dagen, in te stellen op 7–365 dagen):
 
 | | Berekening |
 |---|---|
@@ -178,7 +178,7 @@ Het makkelijkst via het dashboard: menu rechtsboven → **Importeren / exportere
 
 1. **Producten uit webshop overnemen** (gekoppeld op SKU).
 2. **Productlijst downloaden**, in Excel EAN, levertijd en veiligheidsmarge aanvullen, en als CSV weer **uploaden**.
-3. **Verkoophistorie inlezen** (90 dagen, verandert de voorraad niet).
+3. **Verkoophistorie inlezen** (tot 365 dagen uit de webshop, Bol.com maximaal 90 dagen; verandert de voorraad niet).
 
 Of op de commandoregel:
 

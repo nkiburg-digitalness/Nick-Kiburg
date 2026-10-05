@@ -69,6 +69,8 @@
             <option value="30" selected>30 dagen</option>
             <option value="60">60 dagen</option>
             <option value="90">90 dagen</option>
+            <option value="180">180 dagen</option>
+            <option value="365">365 dagen</option>
           </select>
         </label>
         <button class="primary" id="add-product" data-min-role="medewerker">+ Product</button>
@@ -208,8 +210,11 @@
 
       <section class="mini-form" data-min-role="beheerder">
         <h3>3. Verkoophistorie inlezen</h3>
-        <p class="muted small">Leest de orders van de afgelopen 90 dagen uit Bol.com en de webshop, zodat de voorspelling meteen klopt. De voorraad verandert hierdoor niet. Eén keer doen bij de start is genoeg.</p>
-        <div class="actions" style="justify-content:flex-start"><button data-import="backfill">Verkoophistorie inlezen</button></div>
+        <p class="muted small">Leest de orders uit de webshop en Bol.com, zodat de voorspelling meteen klopt. De voorraad verandert hierdoor niet. Al ingelezen orders worden niet dubbel geteld. Bol.com geeft maximaal de laatste 3 maanden; van de webshop kan tot een jaar terug.</p>
+        <div class="actions" style="justify-content:flex-start">
+          <select id="backfill-days" aria-label="Periode"><option value="90">Afgelopen 90 dagen</option><option value="180">Afgelopen 180 dagen</option><option value="365" selected>Afgelopen 365 dagen</option></select>
+          <button data-import="backfill">Verkoophistorie inlezen</button>
+        </div>
       </section>
 
       <p class="explain" id="import-result" hidden></p>

@@ -309,3 +309,22 @@ test('WooCommerce import: variations without their own SKU each become a product
   assert.deepEqual([again.created, again.updated, again.repaired.length], [0, 6, 0]);
   assert.equal(inventory.findProduct({ sku: 'TS', wooProductId: 10, wooVariationId: 102 }).sku, 'TS-ZWART');
 });
+
+test('History import: a year from the webshop, at most 90 days from Bol.com', async () => {
+  const { db, inventory } = setup();
+  inventory.upsertProduct({ sku: 'A', name: 'A', woo_product_id: 1, stock: 10 });
+  const now = new Date('2026-10-05T12:00:00Z');
+  const { fetchImpl, calls } = mockFetch([
+    ['POST', /token/, () => ({ body: { access_token: 't', expires_in: 299 } })],
+    ['GET', /\/retailer\/orders/, () => ({ body: { orders: [] } })],
+    ['GET', /\/wc\/v3\/orders/, () => ({ body: [], headers: { 'x-wp-totalpages': '1' } })],
+  ]);
+  const bol = new BolChannel({ config: bolConfig, db, bus: inventory.bus, fetchImpl });
+  await bol.backfill(inventory, 365, now);
+  assert.equal(calls.filter((c) => c.url.includes('/retailer/orders')).length, 90);
+
+  const woo = new WooCommerceChannel({ config: wooConfig, db, bus: inventory.bus, fetchImpl });
+  await woo.backfill(inventory, 365, now);
+  const after = new URL(calls.find((c) => c.url.includes('/wc/v3/orders')).url).searchParams.get('after');
+  assert.equal(after.slice(0, 10), '2025-10-05');
+});

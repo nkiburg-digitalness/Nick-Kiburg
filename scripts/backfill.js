@@ -4,13 +4,13 @@
  * (Also available in the dashboard: menu → Importeren / exporteren.)
  *
  *   npm run backfill -- <webshop-id>         (last 90 days)
- *   npm run backfill -- <webshop-id> 30      (last 30 days)
+ *   npm run backfill -- <webshop-id> 365     (last year; Bol.com gives at most 90 days)
  */
 import { config } from '../src/config.js';
 import { createApp } from '../src/app.js';
 
 const [shopId, daysArg] = process.argv.slice(2);
-const days = Math.min(90, Number.parseInt(daysArg ?? '90', 10) || 90);
+const days = Math.min(365, Number.parseInt(daysArg ?? '90', 10) || 90);
 const app = createApp(config);
 
 try {

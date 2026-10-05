@@ -8,6 +8,7 @@ import { hasRole, parseCookies, generatePassword, canAccessShop, ROLES, SESSION_
 import { CHANNEL_LABELS } from './inventory.js';
 import { getKv, setKv } from './db.js';
 import { linkReport, reportToCsv } from './report.js';
+import { BOL_HISTORY_DAYS } from './channels/bol.js';
 import { SHOP_COLORS } from './shops.js';
 import { suggestPacks, applyPacks } from './packs.js';
 import { parseCsv, productsToCsv, importRows, importFromWooCommerce, linkBolOffers } from './importer.js';
@@ -128,7 +129,7 @@ export function createHttpServer(app) {
 
   function windowFrom(url) {
     const w = Number.parseInt(url.searchParams.get('window') ?? '', 10);
-    return [7, 14, 30, 60, 90].includes(w) ? w : config.forecast.windowDays;
+    return [7, 14, 30, 60, 90, 180, 365].includes(w) ? w : config.forecast.windowDays;
   }
 
   function channelStatus(rt) {
@@ -346,7 +347,8 @@ export function createHttpServer(app) {
       send(res, 200, result);
     }, { shop: true }],
     ['POST', new RegExp(`^${SHOP}/backfill$`), 'beheerder', async ({ req, res, user, rt }) => {
-      const days = Math.min(90, Math.max(1, Number.parseInt((await readJson(req)).days, 10) || 90));
+      // The webshop keeps all orders; Bol.com only gives the last 3 months (capped in the channel).
+      const days = Math.min(365, Math.max(1, Number.parseInt((await readJson(req)).days, 10) || 90));
       const result = {};
       for (const [name, channel] of Object.entries(rt.channels)) {
         if (typeof channel.backfill === 'function') result[name] = await channel.backfill(rt.inventory, days);
@@ -356,7 +358,7 @@ export function createHttpServer(app) {
       }
       rt.bus.log('info', `Verkoophistorie (${days} dagen) ingelezen door ${user.name}`);
       rt.bus.publish('product', null);
-      send(res, 200, { days, orderLines: result });
+      send(res, 200, { days, orderLines: result, channelDays: Object.fromEntries(Object.keys(result).map((c) => [c, c === 'bol' ? Math.min(days, BOL_HISTORY_DAYS) : days])) });
     }, { shop: true }],
 
     // --- webshop management (beheerder)

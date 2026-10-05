@@ -53,6 +53,11 @@ Wilt u een eigen adres, bijv. `https://voorraad.digitalness.nl`, in plaats van h
    |---|---|---|
    | CNAME | `voorraad` | `voorraadbeheer-xxxx.onrender.com` (het adres dat Render toont) |
 
+   **Staat `voorraad.digitalness.nl` in Plesk als eigen domein** (met een eigen DNS-zone met A-, AAAA-, MX- en NS-records)? Dan kan er geen CNAME op die naam; Plesk staat dat naast de andere records niet toe. Doe dan:
+   - **A-record** van `voorraad.digitalness.nl.` → **wijzigen** naar het IP-adres van Render: `216.24.57.1` (staat ook in Render bij de domeininstellingen);
+   - **AAAA-record** van `voorraad.digitalness.nl.` → **verwijderen** (Render ondersteunt geen IPv6; anders komt een deel van de bezoekers op de oude server uit);
+   - de overige records (NS, MX, mail, TXT, `www`) laten staan, en het domein zelf **niet** uit Plesk verwijderen: daarmee verdwijnt ook deze DNS-zone.
+
    Kunt u de DNS niet zelf aanpassen? Vraag uw domein- of hostingpartij dan alleen om dit ene CNAME-record toe te voegen. Dat is een standaardverzoek. De DNS van de webshops zelf hoeft niet te veranderen.
 3. Klik in Render op **Verify**. Render regelt het HTTPS-certificaat automatisch; dat kan tot een uur duren.
 

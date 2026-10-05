@@ -8,6 +8,7 @@ import { hasRole, parseCookies, generatePassword, canAccessShop, ROLES, SESSION_
 import { CHANNEL_LABELS } from './inventory.js';
 import { getKv } from './db.js';
 import { SHOP_COLORS } from './shops.js';
+import { suggestPacks, applyPacks } from './packs.js';
 import { parseCsv, productsToCsv, importRows, importFromWooCommerce, linkBolOffers } from './importer.js';
 
 const PUBLIC_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'public');
@@ -152,7 +153,15 @@ export function createHttpServer(app) {
     const shopsOut = [];
     let products = [];
     for (const rt of list) {
-      const items = forecastAll(rt.db, opts).map((p) => ({ ...p, shop: rt.id }));
+      // Which sales listings use each stock item (e.g. "2 stuks", "10 m", a package).
+      const usedIn = new Map();
+      for (const l of rt.inventory.listListings()) {
+        for (const c of l.components) {
+          if (!usedIn.has(c.item_sku)) usedIn.set(c.item_sku, []);
+          usedIn.get(c.item_sku).push({ id: l.id, name: l.name, quantity: c.quantity });
+        }
+      }
+      const items = forecastAll(rt.db, opts).map((p) => ({ ...p, shop: rt.id, usedIn: usedIn.get(p.sku) ?? [] }));
       const soldToday = { bol: 0, woocommerce: 0 };
       for (const p of items) for (const c of Object.keys(soldToday)) soldToday[c] += p.soldToday?.[c] ?? 0;
       shopsOut.push({
@@ -236,6 +245,42 @@ export function createHttpServer(app) {
       if (!poller) return send(res, 404, { error: 'Kanaal niet gekoppeld' });
       await poller.run();
       send(res, 200, poller.status());
+    }, { shop: true }],
+
+    // --- sales listings (per webshop)
+    ['GET', new RegExp(`^${SHOP}/listings$`), 'kijker', ({ res, rt }) => {
+      send(res, 200, rt.inventory.listListings());
+    }, { shop: true }],
+    ['GET', new RegExp(`^${SHOP}/items$`), 'kijker', ({ res, rt }) => {
+      send(res, 200, rt.inventory.listProducts().map((p) => ({ sku: p.sku, name: p.name, unit: p.unit })));
+    }, { shop: true }],
+    ['POST', new RegExp(`^${SHOP}/listings$`), 'beheerder', async ({ req, res, user, rt }) => {
+      const body = await readJson(req);
+      send(res, 200, rt.inventory.saveListing({ ...body, id: undefined }, { userName: user.name }));
+    }, { shop: true }],
+    ['PATCH', new RegExp(`^${SHOP}/listings/(\\d+)$`), 'beheerder', async ({ req, res, m, user, rt }) => {
+      const body = await readJson(req);
+      send(res, 200, rt.inventory.saveListing({ ...body, id: Number(m[2]), replace_product: undefined }, { userName: user.name }));
+    }, { shop: true }],
+    ['DELETE', new RegExp(`^${SHOP}/listings/(\\d+)$`), 'beheerder', ({ res, m, user, rt }) => {
+      rt.inventory.deleteListing(Number(m[2]), { userName: user.name });
+      send(res, 200, { ok: true });
+    }, { shop: true }],
+    ['GET', new RegExp(`^${SHOP}/woo-catalog$`), 'beheerder', async ({ res, rt }) => {
+      if (typeof rt.channels.woocommerce?.listProducts !== 'function') return send(res, 200, []);
+      // Cached briefly: the picker may be opened several times while setting things up.
+      if (!rt.wooCatalog || Date.now() - rt.wooCatalog.at > 5 * 60 * 1000) {
+        rt.wooCatalog = { at: Date.now(), items: await rt.channels.woocommerce.listProducts() };
+      }
+      send(res, 200, rt.wooCatalog.items);
+    }, { shop: true }],
+
+    ['GET', new RegExp(`^${SHOP}/packs$`), 'beheerder', ({ res, rt }) => send(res, 200, suggestPacks(rt.inventory)), { shop: true }],
+    ['POST', new RegExp(`^${SHOP}/packs$`), 'beheerder', async ({ req, res, user, rt }) => {
+      const { keys } = await readJson(req);
+      const result = applyPacks(rt.inventory, Array.isArray(keys) ? keys : [], { userName: user.name });
+      rt.bus.log('info', `Verpakkingen/meters ingesteld door ${user.name}: ${result.groups} groep(en), ${result.listings} verkoopartikelen, ${result.newItems} nieuwe voorraadartikelen`);
+      send(res, 200, result);
     }, { shop: true }],
 
     // --- import / export (per webshop)

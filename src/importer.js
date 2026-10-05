@@ -94,6 +94,15 @@ export async function linkBolOffers(inventory, bol, { createMissing = false, use
       result.fbb++;
       continue;
     }
+    const listing = inventory.findListing({ bolOfferId: o.offerId }) ?? (o.ean ? inventory.findListing({ ean: o.ean }) : null);
+    if (listing) {
+      if (listing.bol_offer_id === o.offerId) result.alreadyLinked++;
+      else {
+        inventory.linkListingOffer(listing.id, o.offerId);
+        result.linked++;
+      }
+      continue;
+    }
     const product = inventory.findProduct({ bolOfferId: o.offerId })
       ?? (o.ean ? inventory.findProduct({ ean: o.ean }) : null)
       ?? (o.reference ? inventory.getProduct(o.reference) : null);
@@ -128,8 +137,13 @@ export async function linkBolOffers(inventory, bol, { createMissing = false, use
  * start with the current webshop stock; existing products keep their stock.
  */
 export async function importFromWooCommerce(inventory, woo, { userName = null } = {}) {
-  const result = { created: 0, updated: 0, skipped: [], uncounted: 0 };
+  const result = { created: 0, updated: 0, skipped: [], uncounted: 0, listings: 0 };
   for (const p of await woo.listProducts()) {
+    // Already set up as a sales listing (e.g. "2 stuks" or a package): not a stock item.
+    if (inventory.findListing({ wooProductId: p.woo_product_id, wooVariationId: p.woo_variation_id || undefined })) {
+      result.listings++;
+      continue;
+    }
     if (!p.sku) {
       result.skipped.push(`${p.name} (#${p.woo_product_id}): geen SKU in de webshop`);
       continue;

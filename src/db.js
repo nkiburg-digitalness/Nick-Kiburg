@@ -71,6 +71,48 @@ CREATE TABLE IF NOT EXISTS event_log (
   sku        TEXT,
   message    TEXT NOT NULL
 );
+
+-- Sales listings that are not a stock item themselves: a webshop variation or Bol.com
+-- offer that uses a quantity of one or more stock items (products), e.g.
+-- "Tochtstrip – 2 stuks" = 2 × Tochtstrip, "Tochtband 10 m" = 10 × Tochtband (meter),
+-- "Tochtvrij pakket wit" = 1 × Tochtstrip wit + 5 × Tochtband wit.
+CREATE TABLE IF NOT EXISTS listings (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  name             TEXT NOT NULL,
+  sku              TEXT,
+  ean              TEXT,
+  woo_product_id   INTEGER,
+  woo_variation_id INTEGER,
+  bol_offer_id     TEXT,
+  created_at       TEXT NOT NULL DEFAULT (${NOW})
+);
+CREATE INDEX IF NOT EXISTS idx_listings_woo ON listings (woo_product_id, woo_variation_id);
+CREATE INDEX IF NOT EXISTS idx_listings_ean ON listings (ean);
+
+CREATE TABLE IF NOT EXISTS listing_components (
+  listing_id INTEGER NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
+  item_sku   TEXT NOT NULL REFERENCES products(sku) ON UPDATE CASCADE ON DELETE CASCADE,
+  quantity   INTEGER NOT NULL CHECK (quantity > 0),
+  PRIMARY KEY (listing_id, item_sku)
+);
+CREATE INDEX IF NOT EXISTS idx_components_item ON listing_components (item_sku);
+
+CREATE TABLE IF NOT EXISTS listing_sync_queue (
+  listing_id      INTEGER NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
+  channel         TEXT NOT NULL,
+  attempts        INTEGER NOT NULL DEFAULT 0,
+  next_attempt_at TEXT NOT NULL DEFAULT (${NOW}),
+  last_error      TEXT,
+  PRIMARY KEY (listing_id, channel)
+);
+
+CREATE TABLE IF NOT EXISTS listing_stock (
+  listing_id INTEGER NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
+  channel    TEXT NOT NULL,
+  stock      INTEGER NOT NULL,
+  synced_at  TEXT NOT NULL,
+  PRIMARY KEY (listing_id, channel)
+);
 `;
 
 // The core database: user accounts, sessions and the configured webshops.
@@ -140,6 +182,8 @@ export function openDb(file) {
   ensureColumn(db, 'stock_movements', 'user_name', 'TEXT');
   // 0 = the stock is not known yet (e.g. "manage stock" was off in WooCommerce): such a
   // product is never pushed to the sales channels until it has been counted.
+  // Unit the stock is counted in, e.g. 'stuks' or 'meter'.
+  ensureColumn(db, 'products', 'unit', "TEXT NOT NULL DEFAULT 'stuks'");
   if (ensureColumn(db, 'products', 'stock_confirmed', 'INTEGER NOT NULL DEFAULT 1')) {
     // Products imported with stock 0 that were never counted or received: unknown.
     db.exec(`UPDATE products SET stock_confirmed = 0 WHERE stock = 0 AND NOT EXISTS (

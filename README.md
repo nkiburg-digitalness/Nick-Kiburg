@@ -33,6 +33,26 @@ Open <http://localhost:3000> en log in met `demo@tochtstripdeur.nl` / `demo-wach
 
 ![Webshops beheren](docs/webshops-beheren.png)
 
+## Verpakkingen, meters en pakketten
+
+Wat u op voorraad heeft is niet altijd wat u verkoopt. Daarom zijn er twee soorten artikelen:
+
+- **Voorraadartikelen** – wat u telt, met een eenheid: *Tochtstrip wit* (stuks), *Tochtband wit* (meter). Voorraad, voorspelling en besteladvies gaan hierover.
+- **Verkoopartikelen** – wat in de webshop of op Bol.com staat en hoeveel het van welk voorraadartikel gebruikt:
+
+| Verkoopartikel | Gebruikt per verkoop | Beschikbaar in webshop / op Bol.com |
+|---|---|---|
+| Tochtstrip – 2 stuks / 4 stuks | 2 / 4 × Tochtstrip | voorraad ÷ 2 / ÷ 4 |
+| Tochtband wit – 5 / 10 / 15 m | 5 / 10 / 15 m Tochtband wit | meters ÷ 5 / 10 / 15 |
+| Tochtband wit 10 m (Bol.com) | 10 m Tochtband wit | meters ÷ 10, maximaal 999 |
+| Tochtvrij pakket wit | 1 × Tochtstrip wit + 5 m Tochtband wit | het laagste van beide |
+
+Elke verkoop boekt automatisch de juiste hoeveelheid af van de voorraadartikelen (ook bij annuleringen), en elke voorraadwijziging zet de beschikbaarheid van alle bijbehorende verkoopartikelen goed in de webshop en op Bol.com.
+
+**Instellen:** menu → *Importeren / exporteren* → **Verpakkingen en meters herkennen**. Variaties als *1 / 2 / 4 stuks* of *5 / 10 / 15 m* worden herkend en (na uw controle) gekoppeld aan één voorraadartikel; centimeters (bijv. *305 cm* en *610 cm*) blijven aparte producten. Pakketten en losse gevallen stelt u in via een product → *Verkocht als* → **Verkoopartikel toevoegen**, of *Dit is een verpakking/pakket van een ander artikel…*.
+
+**Bol.com max. 999:** heeft u meer dan 999 op voorraad, dan krijgt Bol.com 999 en de webshop het echte aantal. Uw eigen voorraad en voorspelling rekenen altijd met het echte aantal.
+
 ## Hoe het werkt
 
 ```

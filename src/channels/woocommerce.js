@@ -79,6 +79,16 @@ export class WooCommerceChannel {
     const occurredAt = order.date_created_gmt ? toIsoUtc(order.date_created_gmt) : undefined;
     let booked = 0;
     for (const line of order.line_items ?? []) {
+      const lineRef = `woocommerce:order-item:${line.id}`;
+      const note = `Webshop-order #${order.number ?? order.id}`;
+      // A sales listing (e.g. "2 stuks", "10 m", or a package) takes precedence.
+      const listing = inventory.findListing({ wooProductId: line.product_id || undefined, wooVariationId: line.variation_id || undefined });
+      if (listing) {
+        booked += inventory.recordListingSale({
+          channel: this.name, lineRef, listing, quantity: target === 'count' ? line.quantity : 0, occurredAt, note, applyToStock,
+        });
+        continue;
+      }
       const product = inventory.findProduct({
         sku: line.sku || undefined,
         wooProductId: line.product_id || undefined,
@@ -96,11 +106,11 @@ export class WooCommerceChannel {
       }
       const movement = inventory.recordSale({
         channel: this.name,
-        lineRef: `woocommerce:order-item:${line.id}`,
+        lineRef,
         sku: product.sku,
         quantity: target === 'count' ? line.quantity : 0,
         occurredAt,
-        note: `Webshop-order #${order.number ?? order.id}`,
+        note,
         applyToStock,
       });
       if (movement) booked++;

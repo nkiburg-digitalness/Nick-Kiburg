@@ -115,6 +115,7 @@
       <label>SKU<input name="sku" required></label>
       <label>Naam<input name="name" required></label>
       <label>EAN<input name="ean" inputmode="numeric"></label>
+      <label>Eenheid<select name="unit"><option value="stuks">stuks</option><option value="meter">meter</option></select></label>
       <label>Beginvoorraad<input name="stock" type="number" min="0" value="0"></label>
       <label>Levertijd leverancier (dagen)<input name="lead_time_days" type="number" min="0" value="14"></label>
       <label>Veiligheidsmarge (dagen)<input name="safety_days" type="number" min="0" value="7"></label>
@@ -183,6 +184,13 @@
         </div>
       </section>
 
+      <section class="mini-form" data-min-role="beheerder">
+        <h3>Verpakkingen en meters herkennen</h3>
+        <p class="muted small">Zoekt webshopvariaties als <i>1 / 2 / 4 stuks</i> of <i>5 / 10 / 15 m</i> en stelt voor ze aan één voorraadartikel te koppelen: per stuk (het 1-stuk-artikel) of in meters (per kleur een nieuw artikel). Centimeters, zoals 305 cm en 610 cm, blijven aparte producten. U ziet eerst een voorstel.</p>
+        <div class="actions" style="justify-content:flex-start"><button data-import="packs-suggest">Voorstel maken</button></div>
+        <div id="packs-box" hidden></div>
+      </section>
+
       <section class="mini-form" data-min-role="beheerder" id="bol-link-section">
         <h3>Bol.com-aanbiedingen koppelen</h3>
         <p class="muted small">Haalt al uw aanbiedingen op bij Bol.com en koppelt ze aan de producten (op EAN of referentie/SKU). Daarna stuurt het dashboard de voorraad van die producten ook naar Bol.com – controleer de voorraad dus eerst. Dit kan een paar minuten duren. Aanbiedingen die Bol zelf verstuurt (FBB) blijven ongemoeid.</p>
@@ -240,6 +248,40 @@
       </form>
       <div class="explain" id="shop-result" hidden></div>
     </div>
+  </dialog>
+
+  <dialog class="modal" id="listing-dialog">
+    <form id="listing-form" class="users-inner">
+      <div class="drawer-head">
+        <div class="grow"><h2 id="listing-title">Verkoopartikel</h2>
+          <p class="muted small">Een webshopvariatie, pakket of Bol.com-aanbieding die een hoeveelheid van één of meer voorraadartikelen gebruikt.
+          Bijvoorbeeld: <i>2 stuks</i> = 2 × Tochtstrip, <i>10 m</i> = 10 × Tochtband (meter), <i>Tochtvrij pakket</i> = 1 × Tochtstrip + 5 × Tochtband.</p></div>
+        <button type="button" class="close" data-close aria-label="Sluiten">×</button>
+      </div>
+      <p class="explain warn-box" id="listing-replace" hidden></p>
+      <div class="form-grid" style="padding:0;width:auto">
+        <label class="span-2">Naam<input name="name" required placeholder="bijv. Tochtband wit 10 m"></label>
+        <h4 class="span-2">Webshop</h4>
+        <label class="span-2">Product of variatie in de webshop
+          <select id="listing-woo"><option value="">– niet in de webshop –</option></select>
+        </label>
+        <label>WooCommerce product-ID<input name="woo_product_id" inputmode="numeric"></label>
+        <label>WooCommerce variatie-ID<input name="woo_variation_id" inputmode="numeric"></label>
+        <h4 class="span-2" data-bol-only>Bol.com</h4>
+        <label data-bol-only>EAN van de Bol-aanbieding<input name="ean" inputmode="numeric"></label>
+        <label data-bol-only>Bol offer-ID <span class="muted">(optioneel, wordt automatisch gevonden)</span><input name="bol_offer_id"></label>
+        <label class="span-2">SKU <span class="muted">(optioneel)</span><input name="sku"></label>
+        <h4 class="span-2">Gebruikt per verkoop</h4>
+        <div class="span-2 components" id="listing-components"></div>
+        <div class="span-2"><button type="button" id="add-component">+ Voorraadartikel toevoegen</button></div>
+        <p class="form-error span-2" id="listing-error" hidden></p>
+        <div class="actions span-2">
+          <button type="button" class="danger" id="listing-delete" hidden>Verwijderen</button>
+          <button type="button" data-close>Annuleren</button>
+          <button class="primary" type="submit">Opslaan</button>
+        </div>
+      </div>
+    </form>
   </dialog>
 
   <dialog class="modal" id="account-dialog">

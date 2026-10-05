@@ -265,6 +265,21 @@ button:disabled { opacity: 0.6; cursor: progress; }
 .warn-box { background: color-mix(in srgb, var(--warning) 16%, var(--surface)); }
 .stock.muted { color: var(--text-3); }
 
+.components { display: grid; gap: 8px; }
+.component-row { display: grid; grid-template-columns: 1fr 110px auto; gap: 8px; align-items: center; }
+.component-row .unit { font-size: 12px; color: var(--text-2); }
+.unit-label { font-size: 12px; font-weight: 500; color: var(--text-2); margin-left: 2px; }
+.used-in { font-size: 11px; color: var(--text-3); }
+.listing-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: var(--surface-2); border-radius: 8px; padding: 8px 12px; font-size: 13px; }
+.listing-row .grow { flex: 1; min-width: 180px; }
+.listing-row .meta { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--text-2); }
+.listing-row button { padding: 3px 8px; font-size: 12px; }
+
+#packs-box { display: grid; gap: 8px; }
+.pack-group { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; display: grid; gap: 4px; font-size: 13px; }
+.pack-group label { display: flex; gap: 8px; align-items: center; font-weight: 600; }
+.pack-group ul { margin: 0; padding-left: 26px; color: var(--text-2); font-size: 12px; }
+
 /* Login */
 .login-page { min-height: 100vh; display: grid; place-items: center; padding: 16px; }
 .login-card {

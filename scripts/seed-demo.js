@@ -26,6 +26,16 @@ const SHOPS = [
       ['TSD-RUB-E06-WIT', 'Kierdichting E-profiel 6 m wit', '8720618400066', 0, 1.2, 0.8, 10, 5],
       ['TSD-BRV-BOR-RVS', 'Brievenbus tochtborstel RVS', '8720618400073', 85, 0, 1.1, 14, 7],
       ['TSD-ONK-100-ZLV', 'Onderdeur tochtstrip 100 cm zilver met rubber lip', '8720618400080', 29, 0.7, 0.5, 14, 7],
+      ['TSD-BAND-WIT', 'Tochtband wit (op rol)', null, 1850, 0, 0, 21, 7, 'meter'],
+    ],
+    // Sales listings: packs, lengths and a package, using the stock items above.
+    listings: [
+      { name: 'Tochtstrip deur borstel 93 cm wit – 2 stuks', woo_product_id: 1100, woo_variation_id: 1102, components: [['TSD-BOR-093-WIT', 2]], rate: 0.6 },
+      { name: 'Tochtband wit – 5 m', woo_product_id: 1200, woo_variation_id: 1205, components: [['TSD-BAND-WIT', 5]], rate: 1.6 },
+      { name: 'Tochtband wit – 10 m', woo_product_id: 1200, woo_variation_id: 1210, components: [['TSD-BAND-WIT', 10]], rate: 1.1 },
+      { name: 'Tochtband wit – 15 m', woo_product_id: 1200, woo_variation_id: 1215, components: [['TSD-BAND-WIT', 15]], rate: 0.5 },
+      { name: 'Tochtband wit 10 m (Bol.com)', ean: '8720618400097', bol_offer_id: 'demo-band-wit-10', components: [['TSD-BAND-WIT', 10]], rate: 1.4, channel: 'bol' },
+      { name: 'Tochtvrij pakket wit', woo_product_id: 1300, components: [['TSD-BOR-093-WIT', 1], ['TSD-BAND-WIT', 5]], rate: 0.7 },
     ],
   },
   {
@@ -99,7 +109,7 @@ for (const def of SHOPS) {
   inventory.goLiveAt = new Date(start).toISOString();
   const setTime = (movement, at) => db.prepare('UPDATE stock_movements SET created_at = ? WHERE id = ?').run(at, movement.id);
 
-  def.products.forEach(([sku, name, ean, finalStock, bolRate, wooRate, lead, safety], index) => {
+  def.products.forEach(([sku, name, ean, finalStock, bolRate, wooRate, lead, safety, unit = 'stuks'], index) => {
     // 1. Simulate the orders of the past 90 days.
     const orders = [];
     for (let d = 0; d < HISTORY_DAYS; d++) {
@@ -123,8 +133,8 @@ for (const def of SHOPS) {
     const opening = finalStock + soldTotal - receipt;
 
     inventory.upsertProduct({
-      sku, name, ean, stock: opening, lead_time_days: lead, safety_days: safety,
-      woo_product_id: 1000 + index, bol_offer_id: def.bol && bolRate > 0 ? `demo-${sku.toLowerCase()}` : null,
+      sku, name, ean, unit, stock: opening, lead_time_days: lead, safety_days: safety,
+      woo_product_id: wooRate > 0 ? 1000 + index : null, bol_offer_id: def.bol && bolRate > 0 ? `demo-${sku.toLowerCase()}` : null,
     });
     const openedAt = new Date(start - DAY_MS).toISOString();
     db.prepare('UPDATE products SET created_at = ? WHERE sku = ?').run(openedAt, sku);
@@ -151,9 +161,31 @@ for (const def of SHOPS) {
     if (!received) bookReceipt();
   });
 
-  db.exec('DELETE FROM sync_queue; DELETE FROM event_log;');
+  // Sales listings with their own order history (booked on the stock items, as history).
+  for (const l of def.listings ?? []) {
+    const listing = inventory.saveListing({ ...l, components: l.components.map(([item_sku, quantity]) => ({ item_sku, quantity })) });
+    for (let d = 0; d < HISTORY_DAYS; d++) {
+      for (let o = poisson(l.rate * (0.75 + 0.5 * (d / HISTORY_DAYS))); o > 0; o--) {
+        const at = start + d * DAY_MS + Math.random() * DAY_MS;
+        if (at >= now) continue;
+        line++;
+        inventory.recordListingSale({
+          channel: l.channel ?? 'woocommerce', lineRef: `demo-history:${line}`, listing, quantity: 1,
+          occurredAt: new Date(at).toISOString(), note: `Order H${line}`, applyToStock: false,
+        });
+      }
+    }
+  }
+
+  db.exec('DELETE FROM sync_queue; DELETE FROM listing_sync_queue; DELETE FROM event_log;');
+  for (const l of inventory.listListings()) {
+    for (const channel of [l.woo_product_id ? 'woocommerce' : null, l.bol_offer_id ? 'bol' : null].filter(Boolean)) {
+      db.prepare('INSERT OR REPLACE INTO listing_stock (listing_id, channel, stock, synced_at) VALUES (?, ?, ?, ?)')
+        .run(l.id, channel, Math.min(channel === 'bol' ? 999 : Infinity, l.available.quantity), new Date().toISOString());
+    }
+  }
   for (const p of inventory.listProducts()) {
-    for (const channel of ['woocommerce', ...(p.bol_offer_id ? ['bol'] : [])]) {
+    for (const channel of [...(p.woo_product_id ? ['woocommerce'] : []), ...(p.bol_offer_id ? ['bol'] : [])]) {
       db.prepare('INSERT OR REPLACE INTO channel_stock (sku, channel, stock, synced_at) VALUES (?, ?, ?, ?)')
         .run(p.sku, channel, p.stock, new Date().toISOString());
     }

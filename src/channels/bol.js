@@ -24,7 +24,7 @@ export class BolChannel {
     this.fetchImpl = fetchImpl;
     this.token = null;
     this.tokenExpiresAt = 0;
-    this.linkedOrders = new Set();
+    this.orderDetails = new Map(); // orderId → detail (or null when it could not be fetched)
   }
 
   get mediaType() {
@@ -161,6 +161,23 @@ export class BolChannel {
         seen.add(item.orderItemId);
         if (this.config.fulfilmentMethod !== 'ALL' && item.fulfilmentMethod && item.fulfilmentMethod !== this.config.fulfilmentMethod) continue;
 
+        const lineRef = `bol:order-item:${item.orderItemId}`;
+        const quantity = (item.quantity ?? 0) - (item.quantityCancelled ?? 0);
+        const occurredAt = order.orderPlacedDateTime ? new Date(order.orderPlacedDateTime).toISOString() : undefined;
+
+        // A sales listing (e.g. "Tochtband 10 m" = 10 m of the stock item) takes precedence.
+        const listing = inventory.findListing({ ean: item.ean });
+        if (listing) {
+          if (!listing.bol_offer_id) {
+            const detail = await this.#orderItemDetail(order.orderId, item.orderItemId);
+            if (detail?.offer?.offerId) inventory.linkListingOffer(listing.id, String(detail.offer.offerId));
+          }
+          booked += inventory.recordListingSale({
+            channel: this.name, lineRef, listing, quantity, occurredAt, note: `Bol-order ${order.orderId}`, applyToStock,
+          });
+          continue;
+        }
+
         let product = inventory.findProduct({ ean: item.ean });
         if (!product || !product.bol_offer_id) {
           product = (await this.#linkFromOrderDetail(inventory, order.orderId, item.orderItemId)) ?? product;
@@ -169,13 +186,12 @@ export class BolChannel {
           this.bus.log('warn', `Onbekend product in Bol-order ${order.orderId} (EAN ${item.ean}) – voeg het product toe of vul de EAN in`, { channel: this.name });
           continue;
         }
-        const quantity = (item.quantity ?? 0) - (item.quantityCancelled ?? 0);
         const movement = inventory.recordSale({
           channel: this.name,
-          lineRef: `bol:order-item:${item.orderItemId}`,
+          lineRef,
           sku: product.sku,
           quantity,
-          occurredAt: order.orderPlacedDateTime ? new Date(order.orderPlacedDateTime).toISOString() : undefined,
+          occurredAt,
           note: `Bol-order ${order.orderId}`,
           applyToStock,
         });
@@ -189,17 +205,22 @@ export class BolChannel {
    * The order list only contains EANs; the order detail contains the offer id and the
    * offer reference (usually your SKU). Use it to link products to their Bol offer.
    */
-  async #linkFromOrderDetail(inventory, orderId, orderItemId) {
-    if (this.linkedOrders.has(orderId)) return null;
-    this.linkedOrders.add(orderId);
-    let detail;
-    try {
-      detail = await this.#api(`/retailer/orders/${encodeURIComponent(orderId)}`);
-    } catch (err) {
-      this.bus.log('warn', `Orderdetail ${orderId} ophalen mislukt: ${err.message}`, { channel: this.name });
-      return null;
+  /** One order line from the order detail (fetched once per order). */
+  async #orderItemDetail(orderId, orderItemId) {
+    if (!this.orderDetails.has(orderId)) {
+      try {
+        this.orderDetails.set(orderId, await this.#api(`/retailer/orders/${encodeURIComponent(orderId)}`));
+      } catch (err) {
+        this.bus.log('warn', `Orderdetail ${orderId} ophalen mislukt: ${err.message}`, { channel: this.name });
+        this.orderDetails.set(orderId, null);
+      }
+      if (this.orderDetails.size > 500) this.orderDetails.delete(this.orderDetails.keys().next().value);
     }
-    const item = detail?.orderItems?.find((i) => String(i.orderItemId) === String(orderItemId));
+    return this.orderDetails.get(orderId)?.orderItems?.find((i) => String(i.orderItemId) === String(orderItemId)) ?? null;
+  }
+
+  async #linkFromOrderDetail(inventory, orderId, orderItemId) {
+    const item = await this.#orderItemDetail(orderId, orderItemId);
     if (!item) return null;
     const offerId = item.offer?.offerId;
     const product = inventory.findProduct({ bolOfferId: offerId, sku: item.offer?.reference, ean: item.product?.ean });

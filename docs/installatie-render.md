@@ -89,18 +89,13 @@ De sleutels worden versleuteld opgeslagen en daarna nooit meer getoond. Wilt u e
 
 Menu rechtsboven → **Importeren / exporteren** → kies bovenaan de **webshop**.
 
-1. **Producten uit webshop overnemen.** Haalt alle producten (ook variaties) op en koppelt ze op SKU.
-2. **Productlijst downloaden.** Open hem in Excel en vul per product aan:
-   - de **EAN**: nodig om Bol.com-orders te herkennen;
-   - de **levertijd** en **veiligheidsmarge** in dagen;
-   - de juiste **voorraad**, als die afwijkt.
-
-   Sla op als CSV en kies **CSV uploaden**.
-3. **Verkoophistorie inlezen.** Leest 90 dagen aan orders in, zodat de voorspelling meteen klopt.
-
-4. **Producten met "Nog niet geteld"** (in WooCommerce stond "Voorraad beheren" uit, dus er is geen aantal) krijgen een telling: via de Excel-lijst (kolom *stock*) of per product → *Voorraadtelling*. Zulke producten worden nooit naar de webshop of Bol.com gestuurd zolang ze niet geteld zijn.
-5. **Bol.com-aanbiedingen koppelen** (alleen bij webshops met Bol.com) koppelt al uw Bol-aanbiedingen in één keer aan de producten, op EAN of referentie.
-6. **Synchronisatie starten.** Een nieuwe webshop staat op **pauze**: orders worden geboekt, maar er gaat nog niets naar de webshop of Bol.com. Pas als de voorraad klopt: **Webshops beheren → Synchronisatie starten**.
+1. **Producten uit webshop overnemen.** Haalt alle producten (ook variaties) op en koppelt ze op SKU, met de EAN als die in WooCommerce staat.
+2. **Verpakkingen en meters herkennen.** Variaties als *1 / 2 / 4 stuks* (tochtstrips, tochtrollen, tochtstoppers) en *5 / 10 / 15 m* (tochtbanden) worden gekoppeld aan één voorraadartikel – per stuk of in meters (per kleur). U ziet eerst een voorstel; vink uit wat niet klopt. Centimeters (garagestrip 305 / 610 cm) blijven aparte producten.
+3. **Pakketten instellen** (bijv. *Tochtvrij pakket wit* = 1 tochtstrip + 5 m tochtband): open het pakket-product → *Dit is een verpakking/pakket van een ander artikel…* → kies beide onderdelen met hun aantallen.
+4. **Productlijst downloaden** en in Excel aanvullen: de **EAN** (nodig voor Bol.com), **levertijd**, **veiligheidsmarge** en de **voorraad** – bij tochtband het **totaal aantal meters**. Producten met *Nog niet geteld* (in WooCommerce stond "Voorraad beheren" uit) moeten hier een aantal krijgen; zolang dat niet zo is, worden ze nooit naar de webshop of Bol.com gestuurd. Sla op als CSV en kies **CSV uploaden**.
+5. **Bol.com-aanbiedingen koppelen** (alleen bij webshops met Bol.com): koppelt al uw Bol-aanbiedingen in één keer, op EAN of referentie – ook aan verkoopartikelen zoals *Tochtband 10 m*. Aanbiedingen die niet gekoppeld kunnen worden, ziet u in een lijst; die koppelt u via een product → *Verkoopartikel toevoegen* (EAN van de Bol-aanbieding).
+6. **Verkoophistorie inlezen.** Leest 90 dagen aan orders in (ook via de verpakkingen en pakketten), zodat de voorspelling meteen klopt. Doe dit ná stap 2 en 3.
+7. **Synchronisatie starten.** Een nieuwe webshop staat op **pauze**: orders worden geboekt, maar er gaat nog niets naar de webshop of Bol.com. Pas als de voorraad klopt: **Webshops beheren → Synchronisatie starten**.
 
 > **Let op:** vanaf het moment dat de synchronisatie gestart is, is de voorraad in dit systeem **leidend**. Die voorraad wordt naar de webshop gestuurd en, zodra het Bol-offer-ID bekend is, ook naar Bol.com. Controleer dus vóór het koppelen of de voorraadstanden kloppen.
 

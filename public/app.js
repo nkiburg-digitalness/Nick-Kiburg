@@ -52,6 +52,9 @@ function shopTag(id) {
   return `<span class="shop-tag c-${esc(s.color)}"><i class="shop-dot"></i>${esc(s.name)}</span>`;
 }
 
+const unitShort = (unit) => (!unit || unit === 'stuks' ? '' : unit === 'meter' ? 'm' : unit);
+const withUnit = (n, unit) => `${nf.format(n)}${unitShort(unit) ? `<span class="unit-label">${esc(unitShort(unit))}</span>` : ''}`;
+
 function rememberShop() {
   try { localStorage.setItem('voorraad.shop', state.shop); } catch { /* ignore */ }
 }
@@ -319,6 +322,9 @@ function visibleProducts() {
 
 function syncCell(p) {
   const s = shopInfo(p.shop);
+  if (!p.woo_product_id && !p.bol_offer_id && p.usedIn?.length) {
+    return `<div class="sync"><span class="state">${p.stock_confirmed ? `via ${p.usedIn.length} verkoopartikel${p.usedIn.length > 1 ? 'en' : ''}` : 'wacht op telling'}</span></div>`;
+  }
   // Webshops (or products) not on Bol.com show only the webshop line.
   const names = ['woocommerce', 'bol'].filter((c) => c === 'woocommerce' || (s?.hasBol && p.bol_offer_id) || p.pendingSync.bol);
   return `<div class="sync">${names.map((c) => {
@@ -371,9 +377,9 @@ function renderRows() {
     const trend = f.trendPct === null ? '' : `<span class="trend">${f.trendPct >= 0 ? '▲' : '▼'} ${Math.abs(f.trendPct)}% laatste 7 d</span>`;
     const lastDays = p.salesPerDay.slice(-sparkDays);
     return `<tr data-shop="${esc(p.shop)}" data-sku="${esc(p.sku)}" class="${state.flash.has(productKey(p.shop, p.sku)) ? 'flash' : ''}">
-      <td><div class="pname">${esc(p.name)}</div><div class="psku">${esc(p.sku)}</div></td>
+      <td><div class="pname">${esc(p.name)}</div><div class="psku">${esc(p.sku)}</div>${p.usedIn?.length ? `<div class="used-in" title="${esc(p.usedIn.map((u) => `${u.name} (${u.quantity}×)`).join(', '))}">+ ${p.usedIn.length} verkoopartikel${p.usedIn.length > 1 ? 'en' : ''}</div>` : ''}</td>
       ${state.shop === 'all' ? `<td>${shopTag(p.shop)}</td>` : ''}
-      <td class="num">${p.stock_confirmed ? `<span class="stock ${p.stock < 0 ? 'neg' : ''}">${nf.format(p.stock)}</span>` : '<span class="stock muted" title="Voorraad nog niet geteld – wordt niet naar de kanalen gestuurd">?</span>'}</td>
+      <td class="num">${p.stock_confirmed ? `<span class="stock ${p.stock < 0 ? 'neg' : ''}">${withUnit(p.stock, p.unit)}</span>` : '<span class="stock muted" title="Voorraad nog niet geteld – wordt niet naar de kanalen gestuurd">?</span>'}</td>
       <td class="hide-sm">${syncCell(p)}</td>
       <td class="num hide-xs">${nf2.format(f.avgPerDay)}${trend}</td>
       <td class="hide-sm">${sparkline(lastDays, sparkDays)}</td>
@@ -417,10 +423,12 @@ async function renderDetail({ shop, sku }, { keepScroll = false } = {}) {
   }
   const base = `${shopBase(shop)}/products/${encodeURIComponent(sku)}`;
   const historyWindow = Math.max(60, state.windowDays);
-  const [history, moves] = await Promise.all([
+  const [history, moves, allListings] = await Promise.all([
     api(`${base}/history?window=${historyWindow}`),
     api(`${base}/movements`),
+    api(`${shopBase(shop)}/listings`),
   ]);
+  const listings = allListings.filter((l) => l.components.some((c) => c.item_sku === sku));
   if (state.open?.shop !== shop || state.open?.sku !== sku) return;
   const shopHasBol = shopInfo(shop)?.hasBol || Boolean(p.bol_offer_id);
   const scroll = detail.scrollTop;
@@ -441,7 +449,7 @@ async function renderDetail({ shop, sku }, { keepScroll = false } = {}) {
     </div>
 
     <div class="stats">
-      <div class="stat"><div class="label">Voorraad</div><div class="value">${nf.format(p.stock)}</div><div class="hint">centraal, leidend voor alle kanalen</div></div>
+      <div class="stat"><div class="label">Voorraad</div><div class="value">${p.stock_confirmed ? withUnit(p.stock, p.unit) : '?'}</div><div class="hint">centraal, leidend voor alle kanalen</div></div>
       <div class="stat"><div class="label">Gem. verkoop / dag</div><div class="value">${nf2.format(f.avgPerDay)}</div><div class="hint">${f.unitsSold} stuks in ${f.sellingDays} verkoopdagen</div></div>
       <div class="stat"><div class="label">Uitverkocht over</div><div class="value">${f.status === 'out' ? '0' : f.daysLeft === null ? '–' : nf1.format(f.daysLeft)}</div><div class="hint">${f.soldOutDate && f.status !== 'out' ? `dagen · rond ${longDayFmt.format(parseDay(f.soldOutDate))}` : f.daysLeft === null ? 'geen verkopen in periode' : 'dagen'}</div></div>
       <div class="stat"><div class="label">Bestellen vóór</div><div class="value">${f.orderByDate ? dayFmt.format(parseDay(f.orderByDate)) : '–'}</div><div class="hint">levertijd ${p.lead_time_days} d + marge ${p.safety_days} d</div></div>
@@ -493,6 +501,31 @@ async function renderDetail({ shop, sku }, { keepScroll = false } = {}) {
       <div class="actions" data-min-role="medewerker"><button data-action="resync">Voorraad opnieuw naar kanalen sturen</button></div>
     </div>
 
+    <div class="chart-card">
+      <h3>Verkocht als</h3>
+      <p class="muted small" style="margin:0">Webshopvariaties, pakketten of Bol.com-aanbiedingen die dit artikel gebruiken. Hun beschikbaarheid wordt automatisch uit deze voorraad berekend.</p>
+      <div class="channel-rows">
+        ${listings.length ? listings.map((l) => `<div class="listing-row">
+          <div class="grow"><b>${esc(l.name)}</b>
+            <div class="meta">
+              <span>gebruikt ${l.components.map((c) => `${nf.format(c.quantity)}${unitShort(c.unit) ? ` ${esc(unitShort(c.unit))}` : '×'} ${c.item_sku === sku ? 'dit artikel' : esc(c.name)}`).join(' + ')}</span>
+              <span>beschikbaar: ${l.available.known ? nf.format(l.available.quantity) : 'na telling'}</span>
+              ${['woocommerce', 'bol'].filter((c) => (c === 'woocommerce' ? l.woo_product_id : (l.bol_offer_id || l.ean))).map((c) => {
+                const pushed = l.channelStock[c];
+                const pend = l.pendingSync[c];
+                return `<span><i class="swatch ${c}"></i>${CHANNELS[c]}: ${pend?.lastError ? '<span style="color:var(--critical-ink)">mislukt</span>' : pend ? 'bijwerken…' : pushed ? `${nf.format(pushed.stock)}${c === 'bol' && pushed.stock === 999 && l.available.quantity > 999 ? ' (max.)' : ''}` : c === 'bol' && !l.bol_offer_id ? 'wacht op offer-ID' : '–'}</span>`;
+              }).join('')}
+            </div>
+          </div>
+          <span data-min-role="beheerder"><button data-listing-edit="${l.id}">Bewerken</button></span>
+        </div>`).join('') : '<p class="muted small" style="margin:0">Alleen als los artikel (zie Kanalen).</p>'}
+      </div>
+      <div class="actions" data-min-role="beheerder" style="justify-content:flex-start">
+        <button data-action="add-listing">+ Verkoopartikel toevoegen</button>
+        ${p.woo_product_id || p.bol_offer_id ? '<button data-action="convert">Dit is een verpakking/pakket van een ander artikel…</button>' : ''}
+      </div>
+    </div>
+
     <div class="forms" data-min-role="medewerker">
       <form class="mini-form" data-form="receipt">
         <h3>Levering ontvangen</h3>
@@ -511,6 +544,7 @@ async function renderDetail({ shop, sku }, { keepScroll = false } = {}) {
       <div class="form-grid" style="padding:0;width:auto">
         <label>Naam<input name="name" value="${esc(p.name)}" required></label>
         <label>EAN<input name="ean" value="${esc(p.ean ?? '')}"></label>
+        <label>Eenheid<select name="unit">${['stuks', 'meter'].concat(['stuks', 'meter'].includes(p.unit) ? [] : [p.unit]).map((u) => `<option ${u === p.unit ? 'selected' : ''}>${esc(u)}</option>`).join('')}</select></label>
         <label>Levertijd leverancier (dagen)<input name="lead_time_days" type="number" min="0" value="${p.lead_time_days}"></label>
         <label>Veiligheidsmarge (dagen)<input name="safety_days" type="number" min="0" value="${p.safety_days}"></label>
         <label>WooCommerce product-ID<input name="woo_product_id" value="${esc(p.woo_product_id ?? '')}"></label>
@@ -823,6 +857,18 @@ function bindUi() {
     if (!state.open) return;
     const { shop, sku } = state.open;
     const base = `${shopBase(shop)}/products/${encodeURIComponent(sku)}`;
+    const edit = e.target.closest('[data-listing-edit]');
+    if (edit) {
+      const all = await api(`${shopBase(shop)}/listings`);
+      return openListing({ shop, listing: all.find((l) => l.id === Number(edit.dataset.listingEdit)) });
+    }
+    if (action === 'add-listing') {
+      return openListing({ shop, components: [{ item_sku: sku, quantity: 1 }] });
+    }
+    if (action === 'convert') {
+      const p = state.data.products.find((x) => x.shop === shop && x.sku === sku);
+      return openListing({ shop, replaceProduct: p, components: [] });
+    }
     if (action === 'resync') {
       await api(`${base}/resync`, { method: 'POST' });
     } else if (action === 'delete') {
@@ -999,6 +1045,32 @@ function bindUserMenu() {
         const r = await api(`${shopBase(importShop())}/import/woocommerce`, { method: 'POST' });
         return `Producten uit de webshop: ${summary(r)}${r.uncounted ? `<br><b>${r.uncounted} product(en) hebben in WooCommerce geen voorraadaantal</b> ("Voorraad beheren" staat uit). Die staan op <i>Nog niet geteld</i> en worden pas naar de kanalen gestuurd na een voorraadtelling – via de Excel-lijst (kolom stock) of per product.` : ''}`;
       });
+    } else if (button.dataset.import === 'packs-suggest') {
+      runImport(button, async () => {
+        const groups = await api(`${shopBase(importShop())}/packs`);
+        const box = $('#packs-box');
+        box.hidden = false;
+        if (!groups.length) {
+          box.innerHTML = '';
+          return 'Geen variaties met stuks of meters gevonden die nog omgezet kunnen worden.';
+        }
+        box.innerHTML = groups.map((g) => `<div class="pack-group">
+          <label><input type="checkbox" value="${esc(g.key)}" checked> ${esc(g.title)} <span class="muted small">(${g.unit === 'meter' ? 'in meters' : 'per stuk'})</span></label>
+          <ul>
+            <li>Voorraadartikel: ${g.base.existing ? `<b>${esc(g.base.name)}</b> (bestaand, voorraad blijft)` : `<b>${esc(g.base.name)}</b> – nieuw, <i>nog niet geteld</i>`}</li>
+            ${g.variants.map((v) => `<li>${esc(v.name)} → gebruikt ${v.quantity} ${g.unit === 'meter' ? 'm' : '×'}</li>`).join('')}
+          </ul>
+        </div>`).join('') + '<div class="actions" style="justify-content:flex-start"><button class="primary" data-import="packs-apply">Aangevinkte toepassen</button></div>';
+        return `${groups.length} groep(en) gevonden. Vink uit wat niet klopt en klik op <i>Aangevinkte toepassen</i>.`;
+      });
+    } else if (button.dataset.import === 'packs-apply') {
+      const keys = $$('#packs-box input[type=checkbox]:checked').map((i) => i.value);
+      if (!keys.length) return;
+      runImport(button, async () => {
+        const r = await api(`${shopBase(importShop())}/packs`, { method: 'POST', body: { keys } });
+        $('#packs-box').hidden = true;
+        return `Ingesteld: ${r.groups} groep(en), ${r.listings} verkoopartikelen${r.newItems ? `, ${r.newItems} nieuwe voorraadartikelen (nog niet geteld – vul de totale voorraad in, bij tochtband het totaal aantal meters)` : ''}.${r.errors.length ? `<br>Niet gelukt:<br>${r.errors.map(esc).join('<br>')}` : ''}`;
+      });
     } else if (button.dataset.import === 'bol-offers') {
       runImport(button, async () => {
         showImport('Bezig met ophalen bij Bol.com… dit kan een paar minuten duren.');
@@ -1148,6 +1220,110 @@ async function renderUsers() {
       <button data-user-action="toggle" data-disabled="${u.disabled ? 1 : 0}">${u.disabled ? 'Deblokkeren' : 'Blokkeren'}</button>
       <button data-user-action="delete" class="danger">Verwijderen</button></div>`}</td>
   </tr>`).join('');
+}
+
+/* ---------------------------------------------------------------- sales listings (beheerder) */
+let listingCtx = null;
+
+async function openListing({ shop, listing = null, components = null, replaceProduct = null }) {
+  const dialog = $('#listing-dialog');
+  const form = $('#listing-form');
+  form.reset();
+  $('#listing-error').hidden = true;
+  const info = shopInfo(shop);
+  listingCtx = { shop, id: listing?.id ?? null, replace: replaceProduct?.sku ?? null, items: [] };
+  $('#listing-title').textContent = listing ? `${listing.name} bewerken` : replaceProduct ? `${replaceProduct.name} omzetten` : 'Verkoopartikel toevoegen';
+  $$('[data-bol-only]', form).forEach((el) => { el.hidden = !info?.hasBol; });
+  $('#listing-delete').hidden = !listing;
+  const replaceBox = $('#listing-replace');
+  replaceBox.hidden = !replaceProduct;
+  if (replaceProduct) {
+    replaceBox.innerHTML = `<b>${esc(replaceProduct.name)}</b> wordt geen apart voorraadartikel meer, maar een verkoopartikel: kies hieronder welk voorraadartikel (of welke artikelen) er per verkoop af gaan.
+      De koppeling met de webshop${replaceProduct.bol_offer_id ? ' en Bol.com' : ''} gaat mee; de eigen voorraad en historie van dit product vervallen (lees daarna eventueel de verkoophistorie opnieuw in).`;
+  }
+  const src = listing ?? (replaceProduct ? {
+    name: replaceProduct.name, sku: replaceProduct.sku, ean: replaceProduct.ean,
+    woo_product_id: replaceProduct.woo_product_id, woo_variation_id: replaceProduct.woo_variation_id, bol_offer_id: replaceProduct.bol_offer_id,
+  } : {});
+  for (const f of ['name', 'sku', 'ean', 'woo_product_id', 'woo_variation_id', 'bol_offer_id']) form[f].value = src[f] ?? '';
+
+  listingCtx.items = (await api(`${shopBase(shop)}/items`)).filter((i) => i.sku !== listingCtx.replace);
+  const rows = listing ? listing.components : components ?? [];
+  $('#listing-components').innerHTML = '';
+  for (const c of rows.length ? rows : [{ item_sku: '', quantity: 1 }]) addComponentRow(c);
+  dialog.showModal();
+
+  // The webshop catalogue loads in the background (it can take a few seconds).
+  const select = $('#listing-woo');
+  select.innerHTML = '<option value="">Webshopproducten laden…</option>';
+  api(`${shopBase(shop)}/woo-catalog`).then((catalog) => {
+    const current = `${form.woo_product_id.value}/${form.woo_variation_id.value}`;
+    select.innerHTML = '<option value="">– kies uit de webshop, of vul de ID\'s hieronder in –</option>' + catalog.map((p) => {
+      const key = `${p.woo_product_id}/${p.woo_variation_id ?? ''}`;
+      return `<option value="${esc(key)}" data-name="${esc(p.name)}" data-sku="${esc(p.sku ?? '')}" data-ean="${esc(p.ean ?? '')}" ${key === current ? 'selected' : ''}>${esc(p.name)}${p.sku ? ` (${esc(p.sku)})` : ''}</option>`;
+    }).join('');
+  }).catch(() => { select.innerHTML = '<option value="">Webshop niet bereikbaar – vul de ID\'s hieronder in</option>'; });
+}
+
+function addComponentRow(c = { item_sku: '', quantity: 1 }) {
+  const row = document.createElement('div');
+  row.className = 'component-row';
+  const unitOf = (skuValue) => listingCtx.items.find((i) => i.sku === skuValue)?.unit ?? 'stuks';
+  row.innerHTML = `<select name="component" aria-label="Voorraadartikel" required>
+      <option value="">– kies voorraadartikel –</option>
+      ${listingCtx.items.map((i) => `<option value="${esc(i.sku)}" ${i.sku === c.item_sku ? 'selected' : ''}>${esc(i.name)} (${esc(i.sku)})</option>`).join('')}
+    </select>
+    <label class="unit" style="display:flex;gap:6px;align-items:center"><input name="quantity" type="number" min="1" step="1" value="${Number(c.quantity) || 1}" required style="width:70px"><span data-unit>${esc(unitOf(c.item_sku))}</span></label>
+    <button type="button" data-remove-component aria-label="Verwijderen">×</button>`;
+  $('select', row).addEventListener('change', (e) => { $('[data-unit]', row).textContent = unitOf(e.target.value); });
+  $('#listing-components').append(row);
+}
+
+function bindListings() {
+  const dialog = $('#listing-dialog');
+  const form = $('#listing-form');
+  dialog.addEventListener('click', async (e) => {
+    if (e.target === dialog || e.target.closest('[data-close]')) return dialog.close();
+    if (e.target.closest('[data-remove-component]')) {
+      e.target.closest('.component-row').remove();
+      return;
+    }
+  });
+  $('#add-component').addEventListener('click', () => addComponentRow());
+  $('#listing-woo').addEventListener('change', (e) => {
+    const opt = e.target.selectedOptions[0];
+    const [pid, vid] = (e.target.value || '/').split('/');
+    form.woo_product_id.value = pid;
+    form.woo_variation_id.value = vid;
+    if (opt?.dataset.name && !form.name.value) form.name.value = opt.dataset.name;
+    if (opt?.dataset.sku && !form.sku.value) form.sku.value = opt.dataset.sku;
+  });
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const components = $$('.component-row', form).map((r) => ({ item_sku: $('select', r).value, quantity: Number($('input', r).value) }));
+    const body = {
+      name: form.name.value, sku: form.sku.value, ean: form.ean.value, bol_offer_id: form.bol_offer_id.value,
+      woo_product_id: form.woo_product_id.value, woo_variation_id: form.woo_variation_id.value, components,
+      replace_product: listingCtx.replace,
+    };
+    try {
+      const base = `${shopBase(listingCtx.shop)}/listings`;
+      if (listingCtx.id) await api(`${base}/${listingCtx.id}`, { method: 'PATCH', body });
+      else await api(base, { method: 'POST', body });
+      dialog.close();
+      if (listingCtx.replace) detail.close();
+      await load();
+    } catch (ex) {
+      $('#listing-error').textContent = ex.message;
+      $('#listing-error').hidden = false;
+    }
+  });
+  $('#listing-delete').addEventListener('click', async () => {
+    if (!listingCtx.id || !confirm('Dit verkoopartikel verwijderen? Verkopen ervan worden dan niet meer van de voorraad afgeboekt.')) return;
+    await api(`${shopBase(listingCtx.shop)}/listings/${listingCtx.id}`, { method: 'DELETE' });
+    dialog.close();
+    await load();
+  });
 }
 
 /* ---------------------------------------------------------------- webshops (beheerder) */
@@ -1330,6 +1506,7 @@ renderUserMenu();
 bindUi();
 bindUserMenu();
 bindShops();
+bindListings();
 await Promise.all([load(), loadActivity()]);
 connectEvents();
 setInterval(() => {

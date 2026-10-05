@@ -156,10 +156,10 @@ export class WooCommerceChannel {
         if (p.type === 'variable') {
           const { data: variations } = await this.#api(`/products/${p.id}/variations?per_page=100`);
           for (const v of variations ?? []) {
-            result.push({ woo_product_id: p.id, woo_variation_id: v.id, sku: v.sku, name: `${p.name} – ${(v.attributes ?? []).map((a) => a.option).join(', ')}`, stock: v.stock_quantity });
+            result.push({ woo_product_id: p.id, woo_variation_id: v.id, sku: v.sku, name: `${p.name} – ${(v.attributes ?? []).map((a) => a.option).join(', ')}`, stock: v.stock_quantity, ean: eanOf(v) });
           }
         } else {
-          result.push({ woo_product_id: p.id, woo_variation_id: null, sku: p.sku, name: p.name, stock: p.stock_quantity });
+          result.push({ woo_product_id: p.id, woo_variation_id: null, sku: p.sku, name: p.name, stock: p.stock_quantity, ean: eanOf(p) });
         }
       }
       const totalPages = Number.parseInt(headers.get('x-wp-totalpages') ?? '1', 10);
@@ -167,6 +167,19 @@ export class WooCommerceChannel {
     }
     return result;
   }
+}
+
+/**
+ * EAN of a WooCommerce product: the standard "GTIN, UPC, EAN or ISBN" field
+ * (WooCommerce 9.2+), or a field of a popular EAN/barcode plugin.
+ */
+export function eanOf(product) {
+  const valid = (v) => (/^\d{8,14}$/.test(String(v ?? '').trim()) ? String(v).trim() : null);
+  if (valid(product.global_unique_id)) return valid(product.global_unique_id);
+  for (const meta of product.meta_data ?? []) {
+    if (/ean|gtin|barcode/i.test(meta.key) && valid(meta.value)) return valid(meta.value);
+  }
+  return null;
 }
 
 /** WooCommerce *_gmt fields have no timezone suffix. */

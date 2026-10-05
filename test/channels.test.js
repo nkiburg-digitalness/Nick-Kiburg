@@ -155,3 +155,25 @@ test('Sync worker: a Bol.com sale ends up in the webshop, failures are retried',
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM sync_queue').get().n, 0);
   assert.equal(db.prepare("SELECT stock FROM channel_stock WHERE channel = 'woocommerce'").get().stock, 9);
 });
+
+test('WooCommerce import takes over EAN codes when available', async () => {
+  const { eanOf } = await import('../src/channels/woocommerce.js');
+  const { importFromWooCommerce } = await import('../src/importer.js');
+  assert.equal(eanOf({ global_unique_id: '8720618400011' }), '8720618400011');
+  assert.equal(eanOf({ global_unique_id: '', meta_data: [{ key: '_alg_ean', value: '8712345678906' }] }), '8712345678906');
+  assert.equal(eanOf({ global_unique_id: 'geen-ean', meta_data: [{ key: 'kleur', value: '8712345678906' }] }), null);
+
+  const { inventory } = setup();
+  inventory.upsertProduct({ sku: 'B', name: 'Bestaand', ean: '1111111111111', stock: 1 });
+  const woo = { listProducts: async () => [
+    { sku: 'A', name: 'Nieuw', woo_product_id: 1, woo_variation_id: null, stock: 5, ean: '8720618400011' },
+    { sku: 'B', name: 'Bestaand', woo_product_id: 2, woo_variation_id: null, stock: 9, ean: '2222222222222' },
+    { sku: 'C', name: 'Dubbel', woo_product_id: 3, woo_variation_id: null, stock: 1, ean: '8720618400011' },
+  ] };
+  const result = await importFromWooCommerce(inventory, woo);
+  assert.equal(inventory.getProduct('A').ean, '8720618400011');
+  assert.equal(inventory.getProduct('B').ean, '1111111111111', 'a filled-in EAN is not overwritten');
+  assert.equal(inventory.getProduct('C').ean, null, 'duplicate EAN is skipped');
+  assert.equal(result.created, 2);
+  assert.equal(result.skipped.length, 1);
+});

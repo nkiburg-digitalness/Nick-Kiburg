@@ -90,11 +90,20 @@ export async function importFromWooCommerce(inventory, woo, { userName = null } 
       continue;
     }
     const exists = inventory.getProduct(p.sku);
+    // Take over the EAN from the webshop (needed to recognise Bol.com orders), unless one
+    // was already filled in here or another product already uses it.
+    let ean;
+    if (p.ean && !exists?.ean) {
+      const owner = inventory.findProduct({ ean: p.ean });
+      if (!owner || owner.sku === p.sku) ean = p.ean;
+      else result.skipped.push(`${p.name}: EAN ${p.ean} wordt al gebruikt door ${owner.sku} (product wel overgenomen)`);
+    }
     inventory.upsertProduct({
       sku: p.sku,
       name: exists?.name ?? p.name,
       woo_product_id: p.woo_product_id,
       woo_variation_id: p.woo_variation_id,
+      ...(ean ? { ean } : {}),
       ...(exists ? {} : { stock: p.stock ?? 0 }),
     }, { userName });
     if (exists) result.updated++;

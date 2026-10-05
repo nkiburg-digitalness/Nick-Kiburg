@@ -115,3 +115,22 @@ test('converting an imported variation product into a listing', () => {
   assert.equal(inventory.findListing({ wooProductId: 40, wooVariationId: 41 }).id, listing.id);
   assert.deepEqual(inventory.availableFor(listing), { quantity: 50, known: true });
 });
+
+test('Link overview lists stock items, listings and unlinked Bol.com offers', async () => {
+  const { linkReport, reportToCsv } = await import('../src/report.js');
+  const { inventory } = setup();
+  inventory.upsertProduct({ sku: 'TS-WIT', name: 'Tochtstrip wit', woo_product_id: 1, woo_variation_id: 11, ean: '8710000000011', bol_offer_id: 'b1', stock: 20 });
+  inventory.upsertProduct({ sku: 'TS-ZWART', name: 'Tochtstrip zwart', woo_product_id: 1, woo_variation_id: 12, stock: 0, stock_confirmed: false });
+  inventory.upsertProduct({ sku: 'BAND-M', name: 'Tochtband (meter)', unit: 'meter', stock: 100 });
+  inventory.saveListing({ name: 'Tochtband 10 m (Bol)', ean: '8710000000099', components: [{ item_sku: 'BAND-M', quantity: 10 }] });
+  const rows = linkReport(inventory, { hasWoo: true, hasBol: true, bolUnmatched: [{ ean: '8719999999999', reference: 'X', stock: 4 }] });
+  const by = (name) => rows.find((r) => r.Naam === name);
+  assert.equal(by('Tochtstrip wit')['Let op'], '');
+  assert.match(by('Tochtstrip zwart')['Let op'], /Nog niet geteld/);
+  assert.match(by('Tochtstrip zwart')['Let op'], /Geen EAN/);
+  assert.equal(by('Tochtband (meter)')['Let op'], '', 'a stock item used by a listing is not "missing from the webshop"');
+  assert.equal(by('Tochtband 10 m (Bol)').Voorraad, 10);
+  assert.match(by('Tochtband 10 m (Bol)')['Let op'], /Bol-aanbieding nog niet gevonden/);
+  assert.equal(rows.at(-1).Soort, 'Bol-aanbieding zonder product');
+  assert.match(reportToCsv(rows), /^﻿Soort;SKU;Naam/);
+});

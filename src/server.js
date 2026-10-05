@@ -6,7 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { forecastAll, productHistory } from './forecast.js';
 import { hasRole, parseCookies, generatePassword, canAccessShop, ROLES, SESSION_COOKIE, AuthError } from './auth.js';
 import { CHANNEL_LABELS } from './inventory.js';
-import { getKv } from './db.js';
+import { getKv, setKv } from './db.js';
+import { linkReport, reportToCsv } from './report.js';
 import { SHOP_COLORS } from './shops.js';
 import { suggestPacks, applyPacks } from './packs.js';
 import { parseCsv, productsToCsv, importRows, importFromWooCommerce, linkBolOffers } from './importer.js';
@@ -304,6 +305,15 @@ export function createHttpServer(app) {
         'Content-Disposition': `attachment; filename="producten-${rt.id}-${new Date().toISOString().slice(0, 10)}.csv"`,
       });
     }, { shop: true }],
+    ['GET', new RegExp(`^${SHOP}/export/koppelingen\\.csv$`), 'kijker', ({ res, rt }) => {
+      let bolUnmatched = [];
+      try { bolUnmatched = JSON.parse(getKv(rt.db, 'bol:last_link') ?? '{}').unmatched ?? []; } catch { /* none yet */ }
+      const rows = linkReport(rt.inventory, { hasWoo: rt.hasWoo, hasBol: rt.hasBol, bolUnmatched: rt.hasBol ? bolUnmatched : [] });
+      send(res, 200, reportToCsv(rows), {
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': `attachment; filename="koppelingen-${rt.id}-${new Date().toISOString().slice(0, 10)}.csv"`,
+      });
+    }, { shop: true }],
     ['POST', new RegExp(`^${SHOP}/import/csv$`), 'beheerder', async ({ req, res, user, rt }) => {
       const { csv } = await readJson(req);
       const result = importRows(rt.inventory, parseCsv(csv), { userName: user.name });
@@ -323,6 +333,7 @@ export function createHttpServer(app) {
         throw new AuthError('Bol.com is voor deze webshop niet gekoppeld: vul de sleutels in via Webshops beheren', 400);
       }
       const result = await linkBolOffers(rt.inventory, rt.channels.bol, { userName: user.name });
+      setKv(rt.db, 'bol:last_link', JSON.stringify({ at: new Date().toISOString(), unmatched: result.unmatched }));
       rt.bus.log('info', `Bol.com-aanbiedingen gekoppeld door ${user.name}: ${result.linked} nieuw gekoppeld, ${result.alreadyLinked} al gekoppeld, ${result.unmatched.length} zonder product in de webshop`, { channel: 'bol' });
       send(res, 200, result);
     }, { shop: true }],

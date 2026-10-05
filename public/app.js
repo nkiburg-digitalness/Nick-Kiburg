@@ -1185,6 +1185,7 @@ function bindUserMenu() {
 function updateExportLink() {
   const id = $('#import-shop').value;
   $('#export-link').href = `${shopBase(id)}/export/products.csv`;
+  $('#report-link').href = `${shopBase(id)}/export/koppelingen.csv`;
   $('#bol-link-section').hidden = !can('beheerder') || !shopInfo(id)?.hasBol;
 }
 

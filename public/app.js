@@ -873,7 +873,12 @@ function bindUi() {
       await api(`${base}/resync`, { method: 'POST' });
     } else if (action === 'delete') {
       if (confirm(`Product ${sku} en alle historie verwijderen? De voorraad op Bol.com en de webshop blijft staan.`)) {
-        await api(base, { method: 'DELETE' });
+        try {
+          await api(base, { method: 'DELETE' });
+        } catch (err) {
+          alert(err.message);
+          return;
+        }
         detail.close();
         load();
       }

@@ -36,7 +36,11 @@ function slug(value) {
 /** Proposed groups for the products of one webshop (nothing is changed). */
 export function suggestPacks(inventory) {
   const groups = new Map();
-  for (const p of inventory.listProducts()) {
+  // Webshop variations that are still products, plus sales listings that lost their
+  // stock item (e.g. it was deleted): those are set up again the same way.
+  const orphans = inventory.listListings().filter((l) => !l.components.length)
+    .map((l) => ({ sku: l.sku ?? '', name: l.name, woo_product_id: l.woo_product_id, woo_variation_id: l.woo_variation_id, stock: null, stock_confirmed: 0, listingId: l.id }));
+  for (const p of [...inventory.listProducts(), ...orphans]) {
     if (!p.woo_product_id || !p.woo_variation_id) continue;
     const at = p.name.lastIndexOf(' – ');
     if (at < 0) continue;
@@ -58,13 +62,13 @@ export function suggestPacks(inventory) {
         variants: [],
       });
     }
-    groups.get(key).variants.push({ sku: p.sku, name: p.name, quantity: amount.quantity, stock: p.stock, stockConfirmed: Boolean(p.stock_confirmed) });
+    groups.get(key).variants.push({ sku: p.sku, name: p.name, quantity: amount.quantity, stock: p.stock, stockConfirmed: Boolean(p.stock_confirmed), listingId: p.listingId ?? null });
   }
 
   const result = [];
   for (const g of groups.values()) {
     g.variants.sort((a, b) => a.quantity - b.quantity);
-    const single = g.unit === 'stuks' ? g.variants.find((v) => v.quantity === 1) : null;
+    const single = g.unit === 'stuks' ? g.variants.find((v) => v.quantity === 1 && !v.listingId) : null;
     // A group only makes sense with at least two amounts, or one amount > 1 for metres.
     if (g.variants.length < 2 && !(g.unit === 'meter' && g.variants[0]?.quantity > 1)) continue;
     const suffix = g.rest.length ? `-${slug(g.rest.join('-'))}` : '';
@@ -80,7 +84,7 @@ export function suggestPacks(inventory) {
       title: g.title,
       unit: g.unit,
       base,
-      variants: g.variants.filter((v) => v.sku !== base.sku),
+      variants: g.variants.filter((v) => v.listingId || v.sku !== base.sku),
     });
   }
   return result.sort((a, b) => a.title.localeCompare(b.title, 'nl'));
@@ -100,6 +104,13 @@ export function applyPacks(inventory, keys, { userName = null } = {}) {
         out.newItems++;
       }
       for (const v of g.variants) {
+        if (v.listingId) {
+          // Existing listing without components: only its components are set.
+          const listing = inventory.getListing(v.listingId);
+          inventory.saveListing({ ...listing, components: [{ item_sku: g.base.sku, quantity: v.quantity }] }, { userName });
+          out.listings++;
+          continue;
+        }
         const product = inventory.getProduct(v.sku);
         inventory.saveListing({
           name: product.name,

@@ -53,3 +53,28 @@ test('applying turns variations into listings of one stock item', () => {
   assert.ok(inventory.getProduct('GS-305') && inventory.getProduct('GS-610'), 'garage strips untouched');
   assert.equal(suggestPacks(inventory).length, 0, 'nothing left to suggest');
 });
+
+test('a stock item used by listings cannot be deleted; listings that lost it are repaired', () => {
+  const { db, inventory } = importedShop();
+  const tochtstrip = suggestPacks(inventory).find((g) => g.title === 'Tochtstrip wit');
+  applyPacks(inventory, [tochtstrip.key]);
+  assert.throws(() => inventory.deleteProduct('TS-1'), /wordt gebruikt in/);
+
+  // Simulate the state from before this guard: the stock item is gone, the listings
+  // "2 stuks" / "4 stuks" are left without components.
+  db.prepare("DELETE FROM products WHERE sku = 'TS-1'").run();
+  const orphan = inventory.listListings().find((l) => l.name === 'Tochtstrip wit – 2 stuks');
+  assert.deepEqual([orphan.components.length, orphan.available.known], [0, false]);
+
+  // The webshop import brings back the 1-piece variation; recognising packs relinks.
+  inventory.upsertProduct({ sku: 'TS-1', name: 'Tochtstrip wit – 1 stuk', woo_product_id: 10, woo_variation_id: 11, stock: 120 });
+  const again = suggestPacks(inventory).find((g) => g.title === 'Tochtstrip wit');
+  assert.equal(again.base.sku, 'TS-1');
+  assert.deepEqual(again.variants.map((v) => v.quantity), [2, 4]);
+  const result = applyPacks(inventory, [again.key]);
+  assert.deepEqual([result.listings, result.errors], [2, []]);
+  const fixed = inventory.listListings().find((l) => l.name === 'Tochtstrip wit – 2 stuks');
+  assert.deepEqual(fixed.components.map((c) => [c.item_sku, c.quantity]), [['TS-1', 2]]);
+  assert.equal(fixed.available.quantity, 60);
+  assert.equal(fixed.woo_variation_id, 12, 'the webshop link is kept');
+});

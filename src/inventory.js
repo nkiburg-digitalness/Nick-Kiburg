@@ -157,7 +157,22 @@ export class Inventory {
     `).all().map((p) => ({ ...p, fromBol: Boolean(p.fromBol) }));
   }
 
+  /** Names of the sales listings that use this stock item. */
+  listingsUsing(sku) {
+    return this.db.prepare(`
+      SELECT l.name FROM listing_components c JOIN listings l ON l.id = c.listing_id WHERE c.item_sku = ? ORDER BY l.name
+    `).all(sku).map((r) => r.name);
+  }
+
+  #assertNotUsed(sku, action) {
+    const used = this.listingsUsing(sku);
+    if (used.length) {
+      throw new ValidationError(`${sku} kan niet ${action}: het wordt gebruikt in ${used.map((n) => `"${n}"`).join(', ')}. Pas eerst die verkoopartikelen aan.`);
+    }
+  }
+
   deleteProduct(sku, { userName = null } = {}) {
+    this.#assertNotUsed(sku, 'verwijderd worden');
     const { changes } = this.db.prepare('DELETE FROM products WHERE sku = ?').run(sku);
     if (changes) this.bus.log('info', `Product ${sku} verwijderd${by(userName)}`, { sku });
     this.bus.publish('product_deleted', { sku });
@@ -350,6 +365,8 @@ export class Inventory {
   availableFor(listing) {
     let available = Infinity;
     let known = true;
+    // Without components nothing can be booked or calculated: unknown, never pushed.
+    if (!listing.components.length) return { quantity: 0, known: false };
     for (const c of listing.components) {
       const item = this.getProduct(c.item_sku);
       if (!item) continue;
@@ -411,6 +428,7 @@ export class Inventory {
     if (replace && components.some((c) => c.item_sku === replace)) {
       throw new ValidationError('Een product kan niet worden omgezet naar een verkoopartikel van zichzelf');
     }
+    if (replace) this.#assertNotUsed(replace, 'omgezet worden');
 
     // The same webshop variation / Bol offer may only be linked once.
     if (fields.woo_product_id) {

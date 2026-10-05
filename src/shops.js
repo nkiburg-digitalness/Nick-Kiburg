@@ -86,6 +86,7 @@ export function createShopRuntime({ shop, config, hub, fetchImpl = fetch, dbFile
   const inventory = new Inventory({ db, bus, channels: channels.map((c) => c.name), goLiveAt });
   const worker = new SyncWorker({
     db, bus, channels, intervalMs: config.sync.workerIntervalMs, maxBackoffSeconds: config.sync.maxBackoffSeconds,
+    isPaused: () => Boolean(shop.sync_paused),
   });
   const pollers = [];
   if (!config.demoMode) {
@@ -110,6 +111,7 @@ export function createShopRuntime({ shop, config, hub, fetchImpl = fetch, dbFile
     goLiveAt,
     hasBol,
     hasWoo,
+    syncPaused: Boolean(shop.sync_paused),
     start() {
       if (running) return;
       running = true;
@@ -213,6 +215,7 @@ export class ShopRegistry {
       position: row.position,
       woo_base_url: row.woo_base_url,
       bol_fulfilment_method: row.bol_fulfilment_method,
+      sync_paused: Boolean(row.sync_paused),
       has_woo_keys: Boolean(row.woo_consumer_key && row.woo_consumer_secret),
       has_bol_keys: Boolean(row.bol_client_id && row.bol_client_secret),
       bol_client_id_hint: row.bol_client_id ? `…${this.secrets.open(row.bol_client_id).slice(-4)}` : null,
@@ -238,8 +241,8 @@ export class ShopRegistry {
     const position = (this.db.prepare('SELECT MAX(position) AS m FROM shops').get().m ?? -1) + 1;
     this.db.prepare(`
       INSERT INTO shops (id, name, color, position, woo_base_url, woo_consumer_key, woo_consumer_secret, woo_webhook_secret,
-                         bol_client_id, bol_client_secret, bol_fulfilment_method)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         bol_client_id, bol_client_secret, bol_fulfilment_method, sync_paused)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id, name, color, position,
       normalizeUrl(input.woo_base_url),
@@ -249,6 +252,8 @@ export class ShopRegistry {
       this.secrets.seal(input.bol_client_id?.trim()),
       this.secrets.seal(input.bol_client_secret?.trim()),
       input.bol_fulfilment_method === 'ALL' ? 'ALL' : 'FBR',
+      // New webshops start paused: nothing is sent until the stock has been checked.
+      input.sync_paused === false ? 0 : 1,
     );
     const rt = this.#createRuntime(this.#decrypt(this.db.prepare('SELECT * FROM shops WHERE id = ?').get(id)));
     this.runtimes.set(id, rt);
@@ -277,21 +282,25 @@ export class ShopRegistry {
       if (!(f in input) || input[f] === '' || input[f] === undefined) continue;
       next[f] = input[f] === null ? null : this.secrets.seal(String(input[f]).trim());
     }
+    if ('sync_paused' in input) next.sync_paused = input.sync_paused ? 1 : 0;
     if (input.regenerate_webhook_secret) next.woo_webhook_secret = this.secrets.seal(randomBytes(24).toString('base64url'));
     this.db.prepare(`
       UPDATE shops SET name = ?, color = ?, woo_base_url = ?, woo_consumer_key = ?, woo_consumer_secret = ?,
-        woo_webhook_secret = ?, bol_client_id = ?, bol_client_secret = ?, bol_fulfilment_method = ?,
+        woo_webhook_secret = ?, bol_client_id = ?, bol_client_secret = ?, bol_fulfilment_method = ?, sync_paused = ?,
         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
       WHERE id = ?
     `).run(next.name, next.color, next.woo_base_url, next.woo_consumer_key, next.woo_consumer_secret,
-      next.woo_webhook_secret, next.bol_client_id, next.bol_client_secret, next.bol_fulfilment_method, id);
+      next.woo_webhook_secret, next.bol_client_id, next.bol_client_secret, next.bol_fulfilment_method, next.sync_paused, id);
 
     // Restart this shop only, with the new settings; the other shops keep running.
     this.runtimes.get(id)?.close();
     const rt = this.#createRuntime(this.#decrypt(this.db.prepare('SELECT * FROM shops WHERE id = ?').get(id)));
     this.runtimes.set(id, rt);
     if (this.running) rt.start();
-    this.coreBus?.log('info', `Instellingen van webshop ${next.name} gewijzigd${userName ? ` door ${userName}` : ''}`);
+    const what = 'sync_paused' in input && Boolean(input.sync_paused) !== Boolean(row.sync_paused)
+      ? (next.sync_paused ? 'Synchronisatie gepauzeerd' : 'Synchronisatie gestart') : 'Instellingen gewijzigd';
+    this.coreBus?.log('info', `${what} voor webshop ${next.name}${userName ? ` door ${userName}` : ''}`);
+    rt.bus.log('info', `${what}${userName ? ` door ${userName}` : ''}`);
     this.hub.emit('event', { type: 'shops', payload: null, shop: null, at: new Date().toISOString() });
     return this.describe(id, { includeWebhookSecret: true });
   }

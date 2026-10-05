@@ -177,3 +177,79 @@ test('WooCommerce import takes over EAN codes when available', async () => {
   assert.equal(result.created, 2);
   assert.equal(result.skipped.length, 1);
 });
+
+test('Bol: offer export links offers to products by EAN or reference, skipping FBB', async () => {
+  const { linkBolOffers } = await import('../src/importer.js');
+  const { db, inventory } = setup();
+  inventory.upsertProduct({ sku: 'TS-1', name: 'Strip', ean: '8720000000001', stock: 10 });
+  inventory.upsertProduct({ sku: 'TS-2', name: 'Borstel', stock: 4 });
+  inventory.upsertProduct({ sku: 'TS-3', name: 'Al gekoppeld', ean: '8720000000003', bol_offer_id: 'o3', stock: 1 });
+  const csv = [
+    'offerId,ean,conditionName,stockAmount,fulfilmentType,referenceCode',
+    'o1,8720000000001,NEW,7,FBR,',
+    'o2,8720000000002,NEW,3,FBR,TS-2',
+    'o3,8720000000003,NEW,1,FBR,TS-3',
+    'o4,8720000000004,NEW,12,FBB,',
+    'o5,8720000000005,NEW,6,FBR,ALLEEN-BOL',
+  ].join('\n');
+  let polls = 0;
+  const { fetchImpl, calls } = mockFetch([
+    ['POST', /token/, () => ({ body: { access_token: 't', expires_in: 299 } })],
+    ['POST', /\/retailer\/offers\/export$/, () => ({ status: 202, body: { processStatusId: 'p1', status: 'PENDING' } })],
+    ['GET', /\/shared\/process-status\/p1$/, () => ({ body: polls++ ? { status: 'SUCCESS', entityId: 'r1' } : { status: 'PENDING' } })],
+    ['GET', /\/retailer\/offers\/export\/r1$/, () => ({ body: csv })],
+  ]);
+  const bol = new BolChannel({ config: bolConfig, db, bus: inventory.bus, fetchImpl });
+  bol.exportOffers = ((orig) => (opts) => orig.call(bol, { ...opts, pollMs: 1 }))(bol.exportOffers);
+
+  const result = await linkBolOffers(inventory, bol);
+  assert.deepEqual([result.offers, result.linked, result.alreadyLinked, result.fbb], [5, 2, 1, 1]);
+  assert.deepEqual(result.unmatched, [{ ean: '8720000000005', reference: 'ALLEEN-BOL', stock: 6 }]);
+  assert.equal(inventory.getProduct('TS-1').bol_offer_id, 'o1');
+  assert.equal(inventory.getProduct('TS-2').bol_offer_id, 'o2');
+  assert.equal(inventory.getProduct('TS-2').ean, '8720000000002', 'EAN taken over when matched on reference');
+  assert.equal(calls.find((c) => c.url.includes('/export/r1')).headers.Accept, 'application/vnd.retailer.v10+csv');
+  // Newly linked products are queued to receive the central stock on Bol.com.
+  assert.ok(db.prepare("SELECT 1 FROM sync_queue WHERE sku = 'TS-1' AND channel = 'bol'").get());
+
+  const again = await linkBolOffers(inventory, bol, { createMissing: true });
+  assert.equal(again.created, 1);
+  assert.equal(inventory.getProduct('ALLEEN-BOL').stock, 6);
+  assert.equal(inventory.getProduct('ALLEEN-BOL').bol_offer_id, 'o5');
+});
+
+test('Safety: unknown stock is never pushed, and a paused webshop pushes nothing', async () => {
+  const { db, bus, inventory } = setup();
+  const pushed = [];
+  const channel = { name: 'woocommerce', pushStock: async (p, q) => { pushed.push([p.sku, q]); return q; } };
+  let paused = true;
+  const worker = new SyncWorker({ db, bus, channels: [channel], isPaused: () => paused });
+
+  // Imported from WooCommerce without "manage stock": unknown, not 0.
+  inventory.upsertProduct({ sku: 'ONBEKEND', name: 'X', stock: 0, woo_product_id: 1, stock_confirmed: false });
+  inventory.upsertProduct({ sku: 'GETELD', name: 'Y', stock: 5, woo_product_id: 2 });
+  await worker.runOnce();
+  assert.deepEqual(pushed, [], 'paused: nothing sent');
+
+  paused = false;
+  await worker.runOnce();
+  assert.deepEqual(pushed, [['GETELD', 5]], 'unknown stock is skipped');
+
+  inventory.setStock({ sku: 'ONBEKEND', count: 0 });
+  assert.equal(inventory.getProduct('ONBEKEND').stock_confirmed, 1, 'a stocktake (even of 0) makes it known');
+  await worker.runOnce();
+  assert.deepEqual(pushed.at(-1), ['ONBEKEND', 0]);
+});
+
+test('WooCommerce import: products without "manage stock" get unknown stock', async () => {
+  const { importFromWooCommerce } = await import('../src/importer.js');
+  const { inventory } = setup();
+  const woo = { listProducts: async () => [
+    { sku: 'A', name: 'Beheerd', woo_product_id: 1, woo_variation_id: null, stock: 7 },
+    { sku: 'B', name: 'Niet beheerd', woo_product_id: 2, woo_variation_id: null, stock: null },
+  ] };
+  const result = await importFromWooCommerce(inventory, woo);
+  assert.equal(result.uncounted, 1);
+  assert.equal(inventory.getProduct('A').stock_confirmed, 1);
+  assert.equal(inventory.getProduct('B').stock_confirmed, 0);
+});

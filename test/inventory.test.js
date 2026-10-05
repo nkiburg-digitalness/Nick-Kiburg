@@ -98,3 +98,23 @@ test('daily backup is a readable copy and old backups are pruned', async () => {
   assert.equal(copy.prepare('SELECT stock FROM products').get().stock, 7);
   copy.close();
 });
+
+test('upgrade: products imported with stock 0 and never counted become "unknown"', async () => {
+  const { DatabaseSync } = await import('node:sqlite');
+  const { mkdtempSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { openDb } = await import('../src/db.js');
+  const file = join(mkdtempSync(join(tmpdir(), 'voorraad-upgrade-')), 'shop.db');
+  // An older database without the column.
+  const old = new DatabaseSync(file);
+  old.exec(`CREATE TABLE products (sku TEXT PRIMARY KEY, name TEXT NOT NULL, ean TEXT UNIQUE, stock INTEGER NOT NULL DEFAULT 0,
+    lead_time_days INTEGER NOT NULL DEFAULT 14, safety_days INTEGER NOT NULL DEFAULT 7, woo_product_id INTEGER, woo_variation_id INTEGER,
+    bol_offer_id TEXT, created_at TEXT NOT NULL DEFAULT 'x', updated_at TEXT NOT NULL DEFAULT 'x');
+    INSERT INTO products (sku, name, stock) VALUES ('NUL', 'a', 0), ('VIJF', 'b', 5);`);
+  old.close();
+  const db = openDb(file);
+  const state = Object.fromEntries(db.prepare('SELECT sku, stock_confirmed FROM products').all().map((r) => [r.sku, r.stock_confirmed]));
+  assert.deepEqual(state, { NUL: 0, VIJF: 1 });
+  db.close();
+});

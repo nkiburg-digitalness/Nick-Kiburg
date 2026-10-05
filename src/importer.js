@@ -62,7 +62,8 @@ export function importRows(inventory, rows, { userName = null } = {}) {
     try {
       if (!inventory.getProduct(row.sku)) {
         if (!fields.name) throw new Error('naam ontbreekt');
-        inventory.upsertProduct({ ...fields, stock: row.stock || 0 }, { userName });
+        const counted = row.stock !== undefined && row.stock !== '';
+        inventory.upsertProduct({ ...fields, stock: counted ? row.stock : 0, stock_confirmed: counted }, { userName });
         result.created++;
       } else {
         inventory.upsertProduct(fields, { userName });
@@ -79,11 +80,55 @@ export function importRows(inventory, rows, { userName = null } = {}) {
 }
 
 /**
+ * Link the Bol.com offers of a webshop to its products – by offer id, EAN, or the
+ * offer reference (often your SKU) – so stock is synced to Bol.com from now on,
+ * without waiting for the first Bol.com order. FBB offers (stock kept by Bol.com)
+ * are left alone. Offers without a matching product are listed, or created when
+ * `createMissing` is set (products sold only on Bol.com).
+ */
+export async function linkBolOffers(inventory, bol, { createMissing = false, userName = null } = {}) {
+  const offers = await bol.exportOffers();
+  const result = { offers: offers.length, linked: 0, alreadyLinked: 0, created: 0, fbb: 0, unmatched: [] };
+  for (const o of offers) {
+    if (o.fulfilment === 'FBB') {
+      result.fbb++;
+      continue;
+    }
+    const product = inventory.findProduct({ bolOfferId: o.offerId })
+      ?? (o.ean ? inventory.findProduct({ ean: o.ean }) : null)
+      ?? (o.reference ? inventory.getProduct(o.reference) : null);
+    if (product) {
+      if (product.bol_offer_id === o.offerId) {
+        result.alreadyLinked++;
+        continue;
+      }
+      const fields = { sku: product.sku, bol_offer_id: o.offerId };
+      if (!product.ean && o.ean && !inventory.findProduct({ ean: o.ean })) fields.ean = o.ean;
+      inventory.upsertProduct(fields, { userName });
+      result.linked++;
+    } else if (createMissing) {
+      const sku = o.reference && !inventory.getProduct(o.reference) ? o.reference : `BOL-${o.ean || o.offerId}`;
+      inventory.upsertProduct({
+        sku,
+        name: `Bol.com-product ${o.ean || o.offerId}`,
+        ean: o.ean && !inventory.findProduct({ ean: o.ean }) ? o.ean : null,
+        bol_offer_id: o.offerId,
+        stock: Number.isFinite(o.stock) ? o.stock : 0,
+      }, { userName });
+      result.created++;
+    } else {
+      result.unmatched.push({ ean: o.ean, reference: o.reference, stock: Number.isFinite(o.stock) ? o.stock : null });
+    }
+  }
+  return result;
+}
+
+/**
  * Take over all webshop products (incl. variations) and link them by SKU. New products
  * start with the current webshop stock; existing products keep their stock.
  */
 export async function importFromWooCommerce(inventory, woo, { userName = null } = {}) {
-  const result = { created: 0, updated: 0, skipped: [] };
+  const result = { created: 0, updated: 0, skipped: [], uncounted: 0 };
   for (const p of await woo.listProducts()) {
     if (!p.sku) {
       result.skipped.push(`${p.name} (#${p.woo_product_id}): geen SKU in de webshop`);
@@ -104,8 +149,10 @@ export async function importFromWooCommerce(inventory, woo, { userName = null } 
       woo_product_id: p.woo_product_id,
       woo_variation_id: p.woo_variation_id,
       ...(ean ? { ean } : {}),
-      ...(exists ? {} : { stock: p.stock ?? 0 }),
+      // Without "manage stock" WooCommerce has no quantity: the stock is unknown, not 0.
+      ...(exists ? {} : { stock: p.stock ?? 0, stock_confirmed: p.stock !== null && p.stock !== undefined }),
     }, { userName });
+    if (!exists && (p.stock === null || p.stock === undefined)) result.uncounted++;
     if (exists) result.updated++;
     else result.created++;
   }

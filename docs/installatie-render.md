@@ -98,7 +98,11 @@ Menu rechtsboven → **Importeren / exporteren** → kies bovenaan de **webshop*
    Sla op als CSV en kies **CSV uploaden**.
 3. **Verkoophistorie inlezen.** Leest 90 dagen aan orders in, zodat de voorspelling meteen klopt.
 
-> **Let op:** vanaf het moment van koppelen is de voorraad in dit systeem **leidend**. Die voorraad wordt naar de webshop gestuurd en, zodra het Bol-offer-ID bekend is, ook naar Bol.com. Controleer dus vóór het koppelen of de voorraadstanden kloppen.
+4. **Producten met "Nog niet geteld"** (in WooCommerce stond "Voorraad beheren" uit, dus er is geen aantal) krijgen een telling: via de Excel-lijst (kolom *stock*) of per product → *Voorraadtelling*. Zulke producten worden nooit naar de webshop of Bol.com gestuurd zolang ze niet geteld zijn.
+5. **Bol.com-aanbiedingen koppelen** (alleen bij webshops met Bol.com) koppelt al uw Bol-aanbiedingen in één keer aan de producten, op EAN of referentie.
+6. **Synchronisatie starten.** Een nieuwe webshop staat op **pauze**: orders worden geboekt, maar er gaat nog niets naar de webshop of Bol.com. Pas als de voorraad klopt: **Webshops beheren → Synchronisatie starten**.
+
+> **Let op:** vanaf het moment dat de synchronisatie gestart is, is de voorraad in dit systeem **leidend**. Die voorraad wordt naar de webshop gestuurd en, zodra het Bol-offer-ID bekend is, ook naar Bol.com. Controleer dus vóór het koppelen of de voorraadstanden kloppen.
 
 ## Stap 5 – Collega's toevoegen
 

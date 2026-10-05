@@ -172,19 +172,24 @@ export function forecastAll(db, { windowDays = 30, minTrackedDays = 7, coverDays
     const { sold, soldByChannel, outOfStock } = daily.get(p.sku);
     const first = new Date(firstSeen.get(p.sku) ?? p.created_at);
     const trackedDays = Math.floor((now.getTime() - first.getTime()) / DAY_MS) + 1;
+    const forecast = computeForecast({
+      stock: p.stock,
+      dailySales: sold,
+      outOfStockDays: outOfStock,
+      trackedDays,
+      leadTimeDays: p.lead_time_days,
+      safetyDays: p.safety_days,
+      minTrackedDays,
+      coverDays,
+      now,
+    });
+    if (!p.stock_confirmed) {
+      // Stock unknown (never counted): no sell-out prediction possible yet.
+      Object.assign(forecast, { status: 'uncounted', daysLeft: null, soldOutDate: null, orderByDate: null, orderAdvice: 0 });
+    }
     return {
       ...p,
-      forecast: computeForecast({
-        stock: p.stock,
-        dailySales: sold,
-        outOfStockDays: outOfStock,
-        trackedDays,
-        leadTimeDays: p.lead_time_days,
-        safetyDays: p.safety_days,
-        minTrackedDays,
-        coverDays,
-        now,
-      }),
+      forecast,
       salesPerDay: sold,
       channelSplit: Object.fromEntries(Object.entries(soldByChannel).map(([c, v]) => [c, sum(v)])),
       soldToday: Object.fromEntries(Object.entries(soldByChannel).map(([c, v]) => [c, v[v.length - 1]])),

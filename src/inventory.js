@@ -88,18 +88,21 @@ export class Inventory {
     if (!existing) {
       if (!input.name) throw new ValidationError('Naam is verplicht');
       const stock = Number.parseInt(input.stock ?? 0, 10) || 0;
+      // stock_confirmed: false = stock not known yet; nothing is pushed until it is counted.
+      const confirmed = input.stock_confirmed === false ? 0 : 1;
       transaction(this.db, () => {
         this.db.prepare(`
-          INSERT INTO products (sku, name, ean, stock, lead_time_days, safety_days, woo_product_id, woo_variation_id, bol_offer_id)
-          VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?)
+          INSERT INTO products (sku, name, ean, stock, lead_time_days, safety_days, woo_product_id, woo_variation_id, bol_offer_id, stock_confirmed)
+          VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?)
         `).run(
           sku, input.name, emptyToNull(input.ean),
           input.lead_time_days ?? 14, input.safety_days ?? 7,
           emptyToNull(input.woo_product_id), emptyToNull(input.woo_variation_id), emptyToNull(input.bol_offer_id),
+          confirmed,
         );
         if (stock !== 0) this.#move({ sku, delta: stock, type: 'correction', channel: 'manual', note: 'Beginvoorraad', userName });
       });
-      this.bus.log('info', `Product ${sku} aangemaakt (voorraad ${stock})${by(userName)}`, { sku });
+      this.bus.log('info', `Product ${sku} aangemaakt (${confirmed ? `voorraad ${stock}` : 'voorraad nog niet geteld'})${by(userName)}`, { sku });
       this.enqueueSync(sku);
     } else {
       const sets = [];
@@ -212,7 +215,11 @@ export class Inventory {
     if (!Number.isFinite(n) || n < 0) throw new ValidationError('Telling moet 0 of hoger zijn');
     const product = this.getProduct(sku);
     if (!product) throw new NotFoundError(`Onbekend product ${sku}`);
+    // A stocktake makes the stock known: from now on it is synced to the channels.
+    if (!product.stock_confirmed) this.db.prepare('UPDATE products SET stock_confirmed = 1 WHERE sku = ?').run(sku);
     if (n === product.stock) {
+      if (!product.stock_confirmed) this.bus.log('info', `Voorraadtelling ${sku}: ${n}${by(userName)}`, { sku });
+      this.bus.publish('product', this.getProduct(sku));
       this.enqueueSync(sku); // still re-push, useful to repair a channel
       return null;
     }

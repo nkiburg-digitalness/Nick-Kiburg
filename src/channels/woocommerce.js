@@ -156,10 +156,10 @@ export class WooCommerceChannel {
         if (p.type === 'variable') {
           const { data: variations } = await this.#api(`/products/${p.id}/variations?per_page=100`);
           for (const v of variations ?? []) {
-            result.push({ woo_product_id: p.id, woo_variation_id: v.id, sku: v.sku, name: `${p.name} – ${(v.attributes ?? []).map((a) => a.option).join(', ')}`, stock: v.stock_quantity, ean: eanOf(v) });
+            result.push({ woo_product_id: p.id, woo_variation_id: v.id, sku: v.sku, name: `${p.name} – ${(v.attributes ?? []).map((a) => a.option).join(', ')}`, stock: v.manage_stock === true ? v.stock_quantity : null, ean: eanOf(v) });
           }
         } else {
-          result.push({ woo_product_id: p.id, woo_variation_id: null, sku: p.sku, name: p.name, stock: p.stock_quantity, ean: eanOf(p) });
+          result.push({ woo_product_id: p.id, woo_variation_id: null, sku: p.sku, name: p.name, stock: p.manage_stock ? p.stock_quantity : null, ean: eanOf(p) });
         }
       }
       const totalPages = Number.parseInt(headers.get('x-wp-totalpages') ?? '1', 10);

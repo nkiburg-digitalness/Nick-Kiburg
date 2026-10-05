@@ -91,7 +91,7 @@ let line = 0;
 for (const def of SHOPS) {
   app.shops.create({
     id: def.id, name: def.name, color: def.color, woo_base_url: def.url,
-    woo_consumer_key: 'demo', woo_consumer_secret: 'demo',
+    woo_consumer_key: 'demo', woo_consumer_secret: 'demo', sync_paused: false,
     ...(def.bol ? { bol_client_id: 'demo', bol_client_secret: 'demo' } : {}),
   });
   const { db, inventory } = app.shops.get(def.id);

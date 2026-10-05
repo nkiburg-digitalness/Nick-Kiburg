@@ -1,6 +1,7 @@
 import { getKv, setKv } from '../db.js';
 import { requestJson } from '../http.js';
 import { SkipSync } from './errors.js';
+import { parseCsv } from '../importer.js';
 
 const MINUTE_MS = 60 * 1000;
 const DAY_MS = 24 * 60 * MINUTE_MS;
@@ -43,9 +44,9 @@ export class BolChannel {
     return this.token;
   }
 
-  async #api(path, { method = 'GET', body } = {}) {
+  async #api(path, { method = 'GET', body, accept = this.mediaType } = {}) {
     const token = await this.#accessToken();
-    const headers = { Authorization: `Bearer ${token}`, Accept: this.mediaType };
+    const headers = { Authorization: `Bearer ${token}`, Accept: accept };
     if (body !== undefined) headers['Content-Type'] = this.mediaType;
     try {
       return (await requestJson(`${this.config.apiBase}${path}`, { method, headers, body, fetchImpl: this.fetchImpl })).data;
@@ -61,6 +62,38 @@ export class BolChannel {
     const data = await this.#api(`/retailer/orders?${new URLSearchParams({ 'fulfilment-method': this.config.fulfilmentMethod, status: 'OPEN', page: '1' })}`);
     const open = data?.orders?.length ?? 0;
     return `verbonden – ${open}${open === 50 ? '+' : ''} openstaande order(s)`;
+  }
+
+  /**
+   * All offers of this Bol.com account (offer export: request → wait for the
+   * process → download CSV). Returns [{ offerId, ean, reference, stock, fulfilment }].
+   */
+  async exportOffers({ pollMs = 3000, timeoutMs = 5 * 60 * 1000 } = {}) {
+    const started = await this.#api('/retailer/offers/export', { method: 'POST', body: { format: 'CSV' } });
+    let status = started;
+    const deadline = Date.now() + timeoutMs;
+    while (status?.status !== 'SUCCESS') {
+      if (['FAILURE', 'TIMEOUT'].includes(status?.status)) {
+        throw new Error(`Bol.com kon de aanbiedingenlijst niet maken: ${status.errorMessage || status.status}`);
+      }
+      if (Date.now() > deadline) throw new Error('Bol.com heeft de aanbiedingenlijst nog niet klaar; probeer het over een paar minuten opnieuw');
+      await new Promise((resolve) => setTimeout(resolve, pollMs));
+      status = await this.#api(`/shared/process-status/${encodeURIComponent(started.processStatusId)}`);
+    }
+    const csv = await this.#api(`/retailer/offers/export/${encodeURIComponent(status.entityId)}`, {
+      accept: `application/vnd.retailer.${this.config.apiVersion}+csv`,
+    });
+    const pick = (row, ...keys) => {
+      for (const k of keys) if (row[k.toLowerCase()]) return row[k.toLowerCase()];
+      return null;
+    };
+    return parseCsv(String(csv ?? '')).map((row) => ({
+      offerId: pick(row, 'offerId', 'offer-id'),
+      ean: pick(row, 'ean'),
+      reference: pick(row, 'referenceCode', 'reference'),
+      stock: Number.parseInt(pick(row, 'stockAmount', 'correctedStock') ?? '', 10),
+      fulfilment: (pick(row, 'fulfilmentType', 'fulfilmentMethod', 'fulfilment') ?? '').toUpperCase(),
+    })).filter((o) => o.offerId);
   }
 
   /** Push the central stock to the Bol offer. */

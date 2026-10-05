@@ -7,7 +7,8 @@ import { CHANNEL_LABELS } from './inventory.js';
  * so a temporary Bol.com or webshop outage never loses a stock update.
  */
 export class SyncWorker {
-  constructor({ db, bus, channels, intervalMs = 2000, maxBackoffSeconds = 900 }) {
+  constructor({ db, bus, channels, intervalMs = 2000, maxBackoffSeconds = 900, isPaused = () => false }) {
+    this.isPaused = isPaused;
     this.db = db;
     this.bus = bus;
     this.channels = new Map(channels.map((c) => [c.name, c]));
@@ -43,6 +44,8 @@ export class SyncWorker {
         SELECT * FROM sync_queue WHERE next_attempt_at <= strftime('%Y-%m-%dT%H:%M:%fZ','now')
         ORDER BY next_attempt_at LIMIT 50
       `).all();
+      // Paused: keep the queue, push nothing. Resuming sends the latest stock.
+      if (this.isPaused()) return;
       for (const job of due) await this.#process(job);
     } finally {
       this.running = false;
@@ -55,6 +58,12 @@ export class SyncWorker {
     const done = () => this.db.prepare('DELETE FROM sync_queue WHERE sku = ? AND channel = ?').run(job.sku, job.channel);
     if (!channel || !product) {
       done();
+      return;
+    }
+    if (!product.stock_confirmed) {
+      // Unknown stock (never counted): never push a guessed 0 to a sales channel.
+      done();
+      this.bus.publish('synced', { sku: job.sku, channel: job.channel, skipped: 'voorraad nog niet geteld' });
       return;
     }
     const label = CHANNEL_LABELS[job.channel] ?? job.channel;

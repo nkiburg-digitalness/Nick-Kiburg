@@ -138,6 +138,13 @@ export function openDb(file) {
   const db = open(file, SHOP_SCHEMA);
   // Who booked a manual movement (receipt, stocktake, correction).
   ensureColumn(db, 'stock_movements', 'user_name', 'TEXT');
+  // 0 = the stock is not known yet (e.g. "manage stock" was off in WooCommerce): such a
+  // product is never pushed to the sales channels until it has been counted.
+  if (ensureColumn(db, 'products', 'stock_confirmed', 'INTEGER NOT NULL DEFAULT 1')) {
+    // Products imported with stock 0 that were never counted or received: unknown.
+    db.exec(`UPDATE products SET stock_confirmed = 0 WHERE stock = 0 AND NOT EXISTS (
+      SELECT 1 FROM stock_movements m WHERE m.sku = products.sku AND m.type IN ('receipt', 'correction'))`);
+  }
   return db;
 }
 
@@ -146,12 +153,16 @@ export function openCoreDb(file) {
   const db = open(file, CORE_SCHEMA);
   // Webshops a user may see (JSON array of shop ids); NULL = all webshops.
   ensureColumn(db, 'users', 'shops', 'TEXT');
+  // 1 = do not send stock to the webshop/Bol.com yet (incoming orders are still booked).
+  // Existing webshops start paused after this upgrade, as do all new webshops.
+  ensureColumn(db, 'shops', 'sync_paused', 'INTEGER NOT NULL DEFAULT 1');
   return db;
 }
 
 function ensureColumn(db, table, column, definition) {
   const exists = db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column);
   if (!exists) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  return !exists;
 }
 
 /** Run fn inside a write transaction; rolls back on error. */

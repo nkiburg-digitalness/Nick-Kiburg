@@ -15,6 +15,7 @@ const ICONS = {
   ok: '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 6.2 5 8.5l4.5-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   warning: '<svg viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="4.6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M6 3.4V6l1.8 1.2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
   critical: '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1.3 11 10.4H1L6 1.3Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M6 4.8v2.4M6 8.6v.1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+  uncounted: '<svg viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="4.6" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M4.6 4.7a1.5 1.5 0 1 1 2.1 1.4c-.5.2-.7.5-.7 1v.2M6 8.7v.1" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>',
   out: '<svg viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="4.6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M4.2 4.2l3.6 3.6M7.8 4.2 4.2 7.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
 };
 const STATUS = {
@@ -22,6 +23,7 @@ const STATUS = {
   warning: { label: 'Binnenkort bestellen', rank: 2 },
   critical: { label: 'Nu bestellen', rank: 1 },
   out: { label: 'Uitverkocht', rank: 0 },
+  uncounted: { label: 'Nog niet geteld', rank: -1 },
 };
 const MOVE_TYPES = { sale: 'Verkoop', sale_reversal: 'Annulering', receipt: 'Ontvangst', correction: 'Correctie' };
 
@@ -179,10 +181,22 @@ function render() {
   const current = shopInfo(state.shop);
   $('#brand-sub').textContent = all ? `${data.shops.length} webshops` : `${current?.name ?? ''} · ${current?.hasBol ? 'webshop + Bol.com' : 'webshop'}`;
   renderTabs();
+  renderPausedBanner();
   renderChannels();
   renderKpis();
   if (all) renderShopCards();
   renderRows();
+}
+
+function renderPausedBanner() {
+  const banner = $('#paused-banner');
+  const paused = state.data.shops.filter((s) => s.syncPaused && (state.shop === 'all' || s.id === state.shop));
+  banner.hidden = !paused.length;
+  if (!paused.length) return;
+  const names = paused.map((s) => esc(s.name)).join(', ');
+  banner.innerHTML = `<b>Synchronisatie gepauzeerd${state.shop === 'all' ? `: ${names}` : ''}.</b>
+    Orders worden wel geboekt, maar er wordt nog geen voorraad naar de webshop of Bol.com gestuurd. Controleer eerst de voorraad
+    (producten met "Nog niet geteld" krijgen een telling) en start de synchronisatie daarna${can('beheerder') ? ' via <a href="#" data-open-shops>Webshops beheren</a>' : ' (door een beheerder)'}.`;
 }
 
 function actionCount(s) {
@@ -229,8 +243,8 @@ function renderShopCards() {
         <div><b>${nf.format(sm.stock)}</b><span>stuks voorraad</span></div>
         <div><b>${nf.format(sm.soldToday.bol + sm.soldToday.woocommerce)}</b><span>verkocht vandaag</span></div>
       </div>
-      <div class="statuses">${statuses}</div>
-      <div class="conn">${channelLine(s)}</div>
+      <div class="statuses">${statuses}${sm.uncounted ? ` ${badge('uncounted')} ${sm.uncounted}` : ''}</div>
+      <div class="conn">${s.syncPaused ? '<span class="paused">synchronisatie gepauzeerd</span>' : ''}${channelLine(s)}</div>
     </button>`;
   }).join('');
 }
@@ -261,7 +275,7 @@ function renderKpis() {
   const out = sum((m) => m.out);
   $('#kpis').innerHTML = `
     <div class="kpi"><div class="label">Producten</div><div class="value">${nf.format(productCount)}</div>
-      <div class="sub">${nf.format(totalStock)} stuks op voorraad${state.shop === 'all' ? ` · ${shops.length} webshops` : ''}</div></div>
+      <div class="sub">${nf.format(totalStock)} stuks op voorraad${state.shop === 'all' ? ` · ${shops.length} webshops` : ''}${sum((m) => m.uncounted ?? 0) ? ` · <b>${sum((m) => m.uncounted ?? 0)} nog niet geteld</b>` : ''}</div></div>
     <div class="kpi"><div class="label">Verkocht vandaag</div><div class="value">${nf.format(today.bol + today.woocommerce)}</div>
       <div class="sub"><span><i class="swatch bol"></i>Bol.com ${nf.format(today.bol)}</span><span><i class="swatch woocommerce"></i>Webshop ${nf.format(today.woocommerce)}</span></div></div>
     <button class="kpi" data-filter="action"><div class="label">Actie nodig</div><div class="value">${nf.format(action.length)}</div>
@@ -313,7 +327,8 @@ function syncCell(p) {
     const pushed = p.channelStock[c];
     let st;
     const linked = c === 'bol' ? p.bol_offer_id : p.woo_product_id;
-    if (!state.data.demoMode && (!ch.connected || !linked)) st = '<span class="state">niet gekoppeld</span>';
+    if (!p.stock_confirmed) st = '<span class="state pending">wacht op telling</span>';
+    else if (!state.data.demoMode && (!ch.connected || !linked)) st = '<span class="state">niet gekoppeld</span>';
     else if (pend?.lastError) st = `<span class="state error" title="${esc(pend.lastError)}">mislukt, opnieuw…</span>`;
     else if (pend) st = '<span class="state pending">bijwerken…</span>';
     else if (pushed) st = `<span class="state">${nf.format(pushed.stock)} ${pushed.stock === Math.max(0, p.stock) ? '✓' : ''}</span>`;
@@ -358,11 +373,11 @@ function renderRows() {
     return `<tr data-shop="${esc(p.shop)}" data-sku="${esc(p.sku)}" class="${state.flash.has(productKey(p.shop, p.sku)) ? 'flash' : ''}">
       <td><div class="pname">${esc(p.name)}</div><div class="psku">${esc(p.sku)}</div></td>
       ${state.shop === 'all' ? `<td>${shopTag(p.shop)}</td>` : ''}
-      <td class="num"><span class="stock ${p.stock < 0 ? 'neg' : ''}">${nf.format(p.stock)}</span></td>
+      <td class="num">${p.stock_confirmed ? `<span class="stock ${p.stock < 0 ? 'neg' : ''}">${nf.format(p.stock)}</span>` : '<span class="stock muted" title="Voorraad nog niet geteld – wordt niet naar de kanalen gestuurd">?</span>'}</td>
       <td class="hide-sm">${syncCell(p)}</td>
       <td class="num hide-xs">${nf2.format(f.avgPerDay)}${trend}</td>
       <td class="hide-sm">${sparkline(lastDays, sparkDays)}</td>
-      <td class="num days"><b>${f.status === 'out' ? '0 dagen' : daysText(f.daysLeft)}</b>${f.soldOutDate && f.status !== 'out' ? `<div class="muted small">± ${dayFmt.format(parseDay(f.soldOutDate))}</div>` : ''}${runway(f, p)}</td>
+      <td class="num days"><b>${f.status === 'uncounted' ? '<span class="muted">tel eerst</span>' : f.status === 'out' ? '0 dagen' : daysText(f.daysLeft)}</b>${f.soldOutDate && f.status !== 'out' ? `<div class="muted small">± ${dayFmt.format(parseDay(f.soldOutDate))}</div>` : ''}${runway(f, p)}</td>
       <td class="hide-sm">${f.orderByDate ? orderByText(f.orderByDate) : '<span class="muted">–</span>'}</td>
       <td class="num hide-sm">${f.orderAdvice ? nf.format(f.orderAdvice) : '<span class="muted">–</span>'}</td>
       <td>${badge(f.status)}</td>
@@ -433,6 +448,8 @@ async function renderDetail({ shop, sku }, { keepScroll = false } = {}) {
       <div class="stat"><div class="label">Besteladvies</div><div class="value">${nf.format(f.orderAdvice)}</div><div class="hint">bestelpunt ${nf.format(f.reorderPoint)} stuks</div></div>
     </div>
 
+    ${p.stock_confirmed ? '' : `<p class="explain warn-box"><b>Voorraad nog niet geteld.</b> In de webshop stond "Voorraad beheren" uit, dus het aantal is onbekend.
+      Dit product wordt pas naar de webshop${shopHasBol ? ' en Bol.com' : ''} gestuurd nadat u hieronder een <b>voorraadtelling</b> invult (ook 0 als het echt op is).</p>`}
     <p class="explain">
       Berekening: in de afgelopen ${f.windowDays} dagen zijn ${f.unitsSold} stuks verkocht${splitTotal ? ` (Bol.com ${Math.round((channelSplit[0] / splitTotal) * 100)}%, webshop ${Math.round((channelSplit[1] / splitTotal) * 100)}%)` : ''}
       over ${f.sellingDays} verkoopdagen${f.outOfStockDays ? ` (${f.outOfStockDays} dag(en) uitverkocht niet meegeteld)` : ''} = <b>${nf2.format(f.avgPerDay)} per dag</b>.
@@ -781,6 +798,11 @@ function bindUi() {
     if (card) selectShop(card.dataset.shop);
   });
   $('#add-first-shop').addEventListener('click', () => openShops({ add: true }));
+  $('#paused-banner').addEventListener('click', (e) => {
+    if (!e.target.closest('[data-open-shops]')) return;
+    e.preventDefault();
+    openShops();
+  });
   $('#rows').addEventListener('pointermove', (e) => {
     const svg = e.target.closest('svg.spark');
     if (!svg) return hideTooltip();
@@ -973,7 +995,20 @@ function bindUserMenu() {
     const button = e.target.closest('[data-import]');
     if (!button) return;
     if (button.dataset.import === 'woocommerce') {
-      runImport(button, async () => `Producten uit de webshop: ${summary(await api(`${shopBase(importShop())}/import/woocommerce`, { method: 'POST' }))}`);
+      runImport(button, async () => {
+        const r = await api(`${shopBase(importShop())}/import/woocommerce`, { method: 'POST' });
+        return `Producten uit de webshop: ${summary(r)}${r.uncounted ? `<br><b>${r.uncounted} product(en) hebben in WooCommerce geen voorraadaantal</b> ("Voorraad beheren" staat uit). Die staan op <i>Nog niet geteld</i> en worden pas naar de kanalen gestuurd na een voorraadtelling – via de Excel-lijst (kolom stock) of per product.` : ''}`;
+      });
+    } else if (button.dataset.import === 'bol-offers') {
+      runImport(button, async () => {
+        showImport('Bezig met ophalen bij Bol.com… dit kan een paar minuten duren.');
+        const r = await api(`${shopBase(importShop())}/import/bol-offers`, { method: 'POST', body: { createMissing: $('#bol-create-missing').checked } });
+        const missing = r.unmatched.length
+          ? `<br><b>${r.unmatched.length} aanbieding(en) zonder product in deze webshop</b> (alleen op Bol.com, of EAN ontbreekt/wijkt af):<br>${r.unmatched.slice(0, 25).map((o) => `EAN ${esc(o.ean ?? '–')}${o.reference ? ` · referentie ${esc(o.reference)}` : ''}${o.stock !== null ? ` · voorraad Bol ${o.stock}` : ''}`).join('<br>')}${r.unmatched.length > 25 ? '<br>…' : ''}
+            <br>Vul de EAN in bij het juiste product (Excel-lijst), of koppel opnieuw met "Producten die alleen op Bol.com staan ook toevoegen".`
+          : '';
+        return `Bol.com: ${r.offers} aanbiedingen gevonden. ${r.linked} nieuw gekoppeld, ${r.alreadyLinked} waren al gekoppeld${r.created ? `, ${r.created} producten toegevoegd` : ''}${r.fbb ? `, ${r.fbb} FBB-aanbieding(en) overgeslagen` : ''}.${missing}`;
+      });
     } else if (button.dataset.import === 'backfill') {
       runImport(button, async () => {
         const r = await api(`${shopBase(importShop())}/backfill`, { method: 'POST', body: { days: 90 } });
@@ -1054,7 +1089,9 @@ function bindUserMenu() {
 }
 
 function updateExportLink() {
-  $('#export-link').href = `${shopBase($('#import-shop').value)}/export/products.csv`;
+  const id = $('#import-shop').value;
+  $('#export-link').href = `${shopBase(id)}/export/products.csv`;
+  $('#bol-link-section').hidden = !can('beheerder') || !shopInfo(id)?.hasBol;
 }
 
 function showNewPassword(name, password, email) {
@@ -1136,9 +1173,11 @@ async function renderShopList() {
           <span class="${s.has_woo_keys ? 'ok' : 'missing'}">WooCommerce: ${s.has_woo_keys ? 'sleutels ingevuld' : 'sleutels ontbreken'}</span>
           <span class="${s.has_bol_keys ? 'ok' : ''}">Bol.com: ${s.has_bol_keys ? `gekoppeld (${esc(s.bol_client_id_hint)})` : 'niet gebruikt'}</span>
           <span>${nf.format(s.products)} producten</span>
+          <span class="${s.sync_paused ? 'missing' : 'ok'}">Synchronisatie: ${s.sync_paused ? 'gepauzeerd' : 'actief'}</span>
         </div>
       </div>
       <div class="row-actions">
+        <button data-shop-action="sync" class="${s.sync_paused ? 'primary' : ''}">${s.sync_paused ? 'Synchronisatie starten' : 'Pauzeren'}</button>
         <button data-shop-action="test">Verbinding testen</button>
         <button data-shop-action="webhook">Webhook-gegevens</button>
         <button data-shop-action="edit">Bewerken</button>
@@ -1205,6 +1244,17 @@ function bindShops() {
     if (!btn) return;
     const row = btn.closest('.shop-row');
     const shop = shopAdmin.shops.find((s) => s.id === row.dataset.id);
+    if (btn.dataset.shopAction === 'sync') {
+      const start = shop.sync_paused;
+      const question = start
+        ? `Synchronisatie starten voor ${shop.name}?\n\nVanaf nu stuurt het dashboard de voorraad van alle getelde producten naar de webshop${shop.has_bol_keys ? ' en Bol.com' : ''}. Controleer vooraf of de voorraad in het dashboard klopt. Producten met "Nog niet geteld" worden overgeslagen tot ze geteld zijn.`
+        : `Synchronisatie pauzeren voor ${shop.name}? Orders worden dan nog wel geboekt, maar er wordt geen voorraad meer naar de webshop of Bol.com gestuurd.`;
+      if (!confirm(question)) return;
+      await api(`/api/shops/${encodeURIComponent(shop.id)}`, { method: 'PATCH', body: { sync_paused: !start } });
+      await renderShopList();
+      await load();
+      return;
+    }
     if (btn.dataset.shopAction === 'edit') {
       showShopForm(shop);
     } else if (btn.dataset.shopAction === 'webhook') {

@@ -8,7 +8,7 @@ import { hasRole, parseCookies, generatePassword, canAccessShop, ROLES, SESSION_
 import { CHANNEL_LABELS } from './inventory.js';
 import { getKv } from './db.js';
 import { SHOP_COLORS } from './shops.js';
-import { parseCsv, productsToCsv, importRows, importFromWooCommerce } from './importer.js';
+import { parseCsv, productsToCsv, importRows, importFromWooCommerce, linkBolOffers } from './importer.js';
 
 const PUBLIC_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'public');
 // [file, content type, needs login]
@@ -160,6 +160,7 @@ export function createHttpServer(app) {
         name: rt.shop.name,
         color: rt.shop.color,
         hasBol: rt.hasBol,
+        syncPaused: rt.syncPaused,
         channels: channelStatus(rt),
         summary: {
           products: items.length,
@@ -168,6 +169,7 @@ export function createHttpServer(app) {
           warning: items.filter((p) => p.forecast.status === 'warning').length,
           critical: items.filter((p) => p.forecast.status === 'critical').length,
           out: items.filter((p) => p.forecast.status === 'out').length,
+          uncounted: items.filter((p) => p.forecast.status === 'uncounted').length,
         },
       });
       if (selected === 'all') products.push(...items.filter((p) => p.forecast.status !== 'ok'));
@@ -255,6 +257,15 @@ export function createHttpServer(app) {
       }
       const result = await importFromWooCommerce(rt.inventory, rt.channels.woocommerce, { userName: user.name });
       rt.bus.log('info', `Producten uit de webshop overgenomen door ${user.name}: ${result.created} nieuw, ${result.updated} bijgewerkt`);
+      send(res, 200, result);
+    }, { shop: true }],
+    ['POST', new RegExp(`^${SHOP}/import/bol-offers$`), 'beheerder', async ({ req, res, user, rt }) => {
+      if (typeof rt.channels.bol?.exportOffers !== 'function') {
+        throw new AuthError('Bol.com is voor deze webshop niet gekoppeld: vul de sleutels in via Webshops beheren', 400);
+      }
+      const { createMissing } = await readJson(req);
+      const result = await linkBolOffers(rt.inventory, rt.channels.bol, { createMissing: Boolean(createMissing), userName: user.name });
+      rt.bus.log('info', `Bol.com-aanbiedingen gekoppeld door ${user.name}: ${result.linked} nieuw gekoppeld, ${result.alreadyLinked} al gekoppeld, ${result.created} toegevoegd, ${result.unmatched.length} zonder product`, { channel: 'bol' });
       send(res, 200, result);
     }, { shop: true }],
     ['POST', new RegExp(`^${SHOP}/backfill$`), 'beheerder', async ({ req, res, user, rt }) => {

@@ -353,3 +353,20 @@ test('beheerders manage webshops; API keys are stored encrypted and never sent b
     close();
   }
 });
+
+test('new webshops start with syncing paused until a beheerder starts it', async () => {
+  const { app, loggedIn, close } = await start();
+  try {
+    const admin = await loggedIn();
+    const shop = (await admin('/api/shops', { method: 'POST', body: { name: 'Nieuw', woo_base_url: 'https://n.example', woo_consumer_key: 'k', woo_consumer_secret: 's' } })).data;
+    assert.equal(shop.sync_paused, true);
+    assert.equal(app.shops.get(shop.id).syncPaused, true);
+    const started = (await admin(`/api/shops/${shop.id}`, { method: 'PATCH', body: { sync_paused: false } })).data;
+    assert.equal(started.sync_paused, false);
+    assert.equal(app.shops.get(shop.id).syncPaused, false);
+    const overview = (await admin('/api/overview?shop=all')).data;
+    assert.equal(overview.shops.find((s) => s.id === shop.id).syncPaused, false);
+  } finally {
+    close();
+  }
+});

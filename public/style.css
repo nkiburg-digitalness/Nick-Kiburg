@@ -258,6 +258,13 @@ label.button { display: inline-flex; align-items: center; border-radius: 8px; pa
 label.button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
 button:disabled { opacity: 0.6; cursor: progress; }
 
+.badge.uncounted { color: var(--text-2); background: var(--surface-2); border-color: var(--border); }
+.paused-banner { background: color-mix(in srgb, var(--serious) 14%, var(--surface)); }
+.paused-banner a { color: inherit; font-weight: 600; }
+.shop-card .conn .paused { color: var(--serious-ink); font-weight: 600; }
+.warn-box { background: color-mix(in srgb, var(--warning) 16%, var(--surface)); }
+.stock.muted { color: var(--text-3); }
+
 /* Login */
 .login-page { min-height: 100vh; display: grid; place-items: center; padding: 16px; }
 .login-card {

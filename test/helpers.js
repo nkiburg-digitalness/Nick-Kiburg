@@ -23,6 +23,7 @@ export function mockFetch(routes) {
     const route = routes.find(([m, re]) => m === method && re.test(String(url)));
     if (!route) return new Response(JSON.stringify({ detail: 'not mocked' }), { status: 404 });
     const { status = 200, body = {}, headers = {} } = (await route[2](String(url), init)) ?? {};
+    if (typeof body === 'string') return new Response(body, { status, headers: { 'content-type': 'text/csv', ...headers } });
     return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', ...headers } });
   };
   return { fetchImpl, calls };

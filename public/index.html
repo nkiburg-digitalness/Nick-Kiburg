@@ -35,6 +35,7 @@
   </div>
 
   <nav class="shop-tabs" id="shop-tabs" aria-label="Webshops" hidden></nav>
+  <div class="banner paused-banner" id="paused-banner" hidden></div>
 
   <main>
     <section class="panel no-shops" id="no-shops" hidden>
@@ -180,6 +181,13 @@
           <a class="button" id="export-link" href="#" download>Productlijst downloaden</a>
           <label class="button primary file-button" data-min-role="beheerder">CSV uploaden<input type="file" id="csv-file" accept=".csv,text/csv" hidden></label>
         </div>
+      </section>
+
+      <section class="mini-form" data-min-role="beheerder" id="bol-link-section">
+        <h3>Bol.com-aanbiedingen koppelen</h3>
+        <p class="muted small">Haalt al uw aanbiedingen op bij Bol.com en koppelt ze aan de producten (op EAN of referentie/SKU). Daarna stuurt het dashboard de voorraad van die producten ook naar Bol.com – controleer de voorraad dus eerst. Dit kan een paar minuten duren. Aanbiedingen die Bol zelf verstuurt (FBB) blijven ongemoeid.</p>
+        <label class="small" style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="bol-create-missing"> Producten die alleen op Bol.com staan ook toevoegen</label>
+        <div class="actions" style="justify-content:flex-start"><button class="primary" data-import="bol-offers">Bol.com-aanbiedingen koppelen</button></div>
       </section>
 
       <section class="mini-form" data-min-role="beheerder">

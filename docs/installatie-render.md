@@ -12,7 +12,7 @@ Met deze route heeft u geen eigen server of hulp van een hostingpartij nodig. [R
   | Server *Starter* (512 MB, 0,5 CPU, altijd aan) | $7 | 1 (ruim voldoende voor 4 webshops) | $7,00 |
   | Opslag (persistent disk) | $0,25 per GB | 1 GB (databases van alle webshops + 14 dagelijkse back-ups) | $0,25 |
   | Dataverkeer | 5 GB inbegrepen, daarna $0,15/GB | ± 1–1,5 GB voor 4 webshops (alles wordt gecomprimeerd) | $0 |
-  | Eigen webadres (custom domain) | 2 inbegrepen, daarna $0,25 per stuk | 1 (bijv. voorraad.tochtstripdeur.nl) | $0 |
+  | Eigen webadres (custom domain) | 2 inbegrepen, daarna $0,25 per stuk | 1 (bijv. voorraad.digitalness.nl) | $0 |
   | Build-minuten (installeren van updates) | 500 inbegrepen | enkele minuten per update | $0 |
   | Task runs / Workflows, databases, cron jobs | per gebruik | niet gebruikt | $0 |
 
@@ -44,12 +44,16 @@ Reken voor de installatie op ongeveer een half uur, plus ongeveer 20 minuten per
 
 ## Stap 2 – Eigen webadres (optioneel, ± 10 minuten)
 
-Wilt u een eigen adres, bijv. `https://voorraad.tochtstripdeur.nl`, in plaats van het onrender.com-adres? Eén adres is genoeg voor alle webshops.
+Wilt u een eigen adres, bijv. `https://voorraad.digitalness.nl`, in plaats van het onrender.com-adres? Eén adres is genoeg voor alle webshops.
 
-1. Render → service **voorraadbeheer** → **Settings** → **Custom Domains** → **Add** → `voorraad.tochtstripdeur.nl`. Render toont nu welk **CNAME-record** nodig is (het onrender.com-adres).
-2. Voeg dat record toe waar de DNS van het domein wordt beheerd:
-   - **In Plesk:** Websites & Domeinen → tochtstripdeur.nl → **DNS-instellingen** → **Record toevoegen** → type **CNAME**, domeinnaam `voorraad`, waarde `voorraadbeheer-xxxx.onrender.com`.
-   - Kunt u de DNS niet zelf aanpassen? Vraag uw hostingpartij dan alleen om dit ene CNAME-record toe te voegen. Dat is een standaardverzoek.
+1. Render → service **voorraadbeheer** → **Settings** → **Custom Domains** → **Add** → `voorraad.digitalness.nl`. Render toont nu welk **CNAME-record** nodig is (het onrender.com-adres).
+2. Voeg dat record toe bij de partij waar de DNS van **digitalness.nl** wordt beheerd (meestal de domeinregistrar of hostingpartij, in het DNS-beheer van het domein):
+
+   | Type | Naam / host | Waarde / verwijst naar |
+   |---|---|---|
+   | CNAME | `voorraad` | `voorraadbeheer-xxxx.onrender.com` (het adres dat Render toont) |
+
+   Kunt u de DNS niet zelf aanpassen? Vraag uw domein- of hostingpartij dan alleen om dit ene CNAME-record toe te voegen. Dat is een standaardverzoek. De DNS van de webshops zelf hoeft niet te veranderen.
 3. Klik in Render op **Verify**. Render regelt het HTTPS-certificaat automatisch; dat kan tot een uur duren.
 
 ## Stap 3 – Webshops toevoegen (± 20 minuten per webshop)

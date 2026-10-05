@@ -96,7 +96,7 @@ Beveiliging: wachtwoorden worden versleuteld (scrypt) opgeslagen, sessies lopen 
 
 ## 24/7 online: hosting
 
-Het systeem moet op een server draaien die altijd aan staat – niet op een laptop. Dan blijven de synchronisatie en het dashboard werken, ook 's nachts en in het weekend. De server moet via **HTTPS** bereikbaar zijn (bijv. `https://voorraad.tochtstripdeur.nl`), omdat WooCommerce daar zijn meldingen naartoe stuurt.
+Het systeem moet op een server draaien die altijd aan staat – niet op een laptop. Dan blijven de synchronisatie en het dashboard werken, ook 's nachts en in het weekend. De server moet via **HTTPS** bereikbaar zijn (bijv. `https://voorraad.digitalness.nl`), omdat WooCommerce daar zijn meldingen naartoe stuurt.
 
 Wat er voor continu gebruik al in zit:
 
@@ -117,7 +117,7 @@ Draait de webshop op een VPS met Plesk en mag daar Docker op? Dan kan het voorra
 Een kleine VPS in Nederland/Duitsland (bijv. TransIP, Hetzner, DigitalOcean Amsterdam; ± €5–10 per maand, 1 GB geheugen is ruim voldoende), voor wie zelf een server kan beheren.
 
 1. Maak een VPS aan met Ubuntu en installeer Docker (`curl -fsSL https://get.docker.com | sh`).
-2. Laat een subdomein (bijv. `voorraad.tochtstripdeur.nl`) met een **A-record** naar het IP-adres van de server wijzen (bij uw domeinbeheerder).
+2. Laat een subdomein (bijv. `voorraad.digitalness.nl`) met een **A-record** naar het IP-adres van de server wijzen (bij uw domeinbeheerder).
 3. Zet de code op de server, maak `.env` aan (`cp .env.example .env`) en vul `DOMAIN`, de beheerder en de koppelingen in.
 4. Start: `docker compose up -d --build`
 

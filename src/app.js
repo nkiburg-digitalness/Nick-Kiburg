@@ -1,62 +1,46 @@
-import { openDb, getKv, setKv } from './db.js';
+import { EventEmitter } from 'node:events';
+import { dirname, join } from 'node:path';
+import { openCoreDb } from './db.js';
 import { Auth } from './auth.js';
 import { Backups } from './backup.js';
 import { EventBus } from './events.js';
-import { Inventory } from './inventory.js';
-import { SyncWorker } from './sync.js';
-import { Poller } from './pollers.js';
-import { BolChannel } from './channels/bol.js';
-import { WooCommerceChannel } from './channels/woocommerce.js';
-import { DemoChannel, startDemoSales } from './channels/demo.js';
+import { SecretBox, loadSecret } from './secrets.js';
+import { ShopRegistry } from './shops.js';
 
 /**
- * Wire up database, channels, inventory, sync worker and pollers.
+ * Wire up the core (users, sessions, webshop settings) and one runtime per webshop.
  * Nothing is started until start() is called, which keeps this usable from scripts.
  */
 export function createApp(config, { fetchImpl = fetch } = {}) {
-  const db = openDb(config.dbFile);
-  const bus = new EventBus(db);
-  const auth = new Auth(db);
+  const coreDb = openCoreDb(config.dbFile);
+  const hub = new EventEmitter();
+  hub.setMaxListeners(200);
+  const coreBus = new EventBus(coreDb, { shopId: null, hub });
+  const auth = new Auth(coreDb);
+  // Demo and tests contain no real API keys, so a fixed key is fine there.
+  const secret = config.secretKey || (config.dbFile === ':memory:' || config.demoMode
+    ? 'demo-or-test-secret'
+    : loadSecret({ envSecret: '', keyFile: join(dirname(config.dbFile), 'secret.key') }));
+  const secrets = new SecretBox(secret);
+  const shops = new ShopRegistry({ coreDb, config, hub, secrets, fetchImpl, coreBus });
 
-  let goLiveAt = process.env.GO_LIVE_AT ? new Date(process.env.GO_LIVE_AT).toISOString() : getKv(db, 'go_live_at');
-  if (!goLiveAt) {
-    goLiveAt = new Date().toISOString();
-    setKv(db, 'go_live_at', goLiveAt);
+  // Upgrade path from a single-webshop setup configured with WOO_*/BOL_* variables.
+  if (!coreDb.prepare('SELECT 1 FROM shops').get() && config.legacyShop) {
+    shops.create(config.legacyShop);
   }
+  shops.load();
 
-  const channels = [];
-  const pollers = [];
-  if (config.demoMode) {
-    channels.push(new DemoChannel('bol'), new DemoChannel('woocommerce'));
-  } else {
-    if (config.bol.enabled) channels.push(new BolChannel({ config: config.bol, db, bus, fetchImpl }));
-    if (config.woo.enabled) channels.push(new WooCommerceChannel({ config: config.woo, db, bus, fetchImpl }));
-  }
-  const byName = Object.fromEntries(channels.map((c) => [c.name, c]));
+  const coreBackups = config.backupDir
+    ? new Backups({ db: coreDb, bus: coreBus, dir: config.backupDir, keep: config.backupKeepDays, prefix: 'kern' })
+    : null;
 
-  const inventory = new Inventory({ db, bus, channels: channels.map((c) => c.name), goLiveAt });
-  const worker = new SyncWorker({
-    db, bus, channels, intervalMs: config.sync.workerIntervalMs, maxBackoffSeconds: config.sync.maxBackoffSeconds,
-  });
-
-  if (!config.demoMode) {
-    if (byName.bol) pollers.push(new Poller({ channel: byName.bol, inventory, bus, intervalSeconds: config.bol.pollIntervalSeconds }));
-    if (byName.woocommerce) pollers.push(new Poller({ channel: byName.woocommerce, inventory, bus, intervalSeconds: config.woo.pollIntervalSeconds }));
-  }
-
-  const backups = config.backupDir ? new Backups({ db, bus, dir: config.backupDir, keep: config.backupKeepDays }) : null;
-
-  let stopDemo = null;
   return {
     config,
-    db,
-    bus,
-    inventory,
-    channels: byName,
-    pollers,
-    worker,
-    goLiveAt,
+    coreDb,
+    coreBus,
+    hub,
     auth,
+    shops,
     demoLogin: null,
     /** Create the first beheerder from ADMIN_EMAIL / ADMIN_PASSWORD if there are no users yet. */
     async bootstrapAdmin() {
@@ -64,21 +48,17 @@ export function createApp(config, { fetchImpl = fetch } = {}) {
       const user = await auth.createUser({
         email: config.adminEmail, name: config.adminName, role: 'beheerder', password: config.adminPassword,
       });
-      bus.log('info', `Eerste beheerder ${user.name} (${user.email}) aangemaakt`);
+      coreBus.log('info', `Eerste beheerder ${user.name} (${user.email}) aangemaakt`);
       return user;
     },
     start() {
-      worker.start();
-      for (const p of pollers) p.start();
-      backups?.start();
-      if (config.demoMode) stopDemo = startDemoSales(inventory);
+      shops.startAll();
+      coreBackups?.start();
     },
     stop() {
-      worker.stop();
-      for (const p of pollers) p.stop();
-      backups?.stop();
-      stopDemo?.();
-      db.close();
+      coreBackups?.stop();
+      shops.stopAll();
+      coreDb.close();
     },
   };
 }

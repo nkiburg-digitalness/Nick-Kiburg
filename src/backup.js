@@ -6,8 +6,9 @@ import { join } from 'node:path';
  * app keeps running). Keeps the most recent `keep` backups.
  */
 export class Backups {
-  constructor({ db, bus, dir, keep = 14 }) {
+  constructor({ db, bus, dir, keep = 14, prefix = 'voorraad' }) {
     this.db = db;
+    this.prefix = prefix;
     this.bus = bus;
     this.dir = dir;
     this.keep = keep;
@@ -26,7 +27,7 @@ export class Backups {
 
   /** Make today's backup if it doesn't exist yet. */
   runIfDue(now = new Date()) {
-    const file = join(this.dir, `voorraad-${now.toISOString().slice(0, 10)}.db`);
+    const file = join(this.dir, `${this.prefix}-${now.toISOString().slice(0, 10)}.db`);
     if (existsSync(file)) return null;
     try {
       mkdirSync(this.dir, { recursive: true });
@@ -41,7 +42,8 @@ export class Backups {
   }
 
   #prune() {
-    const files = readdirSync(this.dir).filter((f) => /^voorraad-\d{4}-\d{2}-\d{2}\.db$/.test(f)).sort();
+    const pattern = new RegExp(`^${this.prefix.replace(/[^a-z0-9-]/gi, '')}-\\d{4}-\\d{2}-\\d{2}\\.db$`);
+    const files = readdirSync(this.dir).filter((f) => pattern.test(f)).sort();
     for (const f of files.slice(0, Math.max(0, files.length - this.keep))) rmSync(join(this.dir, f));
   }
 }

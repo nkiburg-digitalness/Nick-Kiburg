@@ -51,25 +51,16 @@ Zet uw wachtwoorden en API-sleutels liever niet in een supportticket. Maak het b
 1. Plesk → **Bestanden** → ga naar de map `voorraad-app` (naast `httpdocs`).
 2. Kopieer `.env.example` naar `.env` en vul in:
    - `ADMIN_EMAIL`, `ADMIN_NAME`, `ADMIN_PASSWORD`: uw eigen beheerdersaccount (wachtwoord minimaal 10 tekens).
-   - `BOL_CLIENT_ID`, `BOL_CLIENT_SECRET`: uit het Bol.com Partnerplatform.
-   - `WOO_BASE_URL=https://tochtstripdeur.nl`, `WOO_CONSUMER_KEY`, `WOO_CONSUMER_SECRET`, `WOO_WEBHOOK_SECRET`: zie de README, "WooCommerce koppelen".
+   - `SECRET_KEY`: een lange willekeurige tekst (bijv. 40 tekens). Bewaar hem goed; hiermee worden de API-sleutels van de webshops versleuteld.
    - `DOMAIN` mag leeg blijven (Plesk regelt het webadres).
+   - De webshops zelf (WooCommerce- en Bol.com-sleutels) voegt u daarna toe in het dashboard.
 3. Laat Snel.com weten dat `.env` klaarstaat (stap 4 uit het bericht).
 
 ## Stap 4 – Controleren en koppelen
 
 1. Open `https://voorraad.tochtstripdeur.nl` en log in met uw beheerdersaccount.
 2. Zet in `.env` de regel `ADMIN_PASSWORD=` daarna weer leeg. Het account bestaat dan al en het wachtwoord hoeft niet in het bestand te blijven staan.
-3. WooCommerce-webhooks ("Order aangemaakt" en "Order bijgewerkt") laten wijzen naar
-   `https://voorraad.tochtstripdeur.nl/webhooks/woocommerce`.
-4. Producten inlezen en collega's toevoegen: zie de README ("Producten inlezen en live gaan" en "Toegang voor collega's").
-
-Het inlezen van producten doet Snel.com (of iemand met SSH-toegang) in de app-map met:
-
-```bash
-docker compose -f docker-compose.plesk.yml exec -u node voorraad node --disable-warning=ExperimentalWarning scripts/import-csv.js --woocommerce
-docker compose -f docker-compose.plesk.yml exec -u node voorraad node --disable-warning=ExperimentalWarning scripts/backfill.js
-```
+3. Webshops toevoegen, webhooks instellen, producten inlezen en collega's toevoegen: alles in het dashboard. Volg stap 3 t/m 5 van [installatie-render.md](installatie-render.md); dat werkt hier precies hetzelfde.
 
 ## Onderhoud
 

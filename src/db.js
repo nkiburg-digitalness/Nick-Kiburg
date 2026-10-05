@@ -4,7 +4,8 @@ import { dirname } from 'node:path';
 
 const NOW = "strftime('%Y-%m-%dT%H:%M:%fZ','now')";
 
-const SCHEMA = `
+// One database per webshop: products, stock ledger and sync state.
+const SHOP_SCHEMA = `
 CREATE TABLE IF NOT EXISTS products (
   sku              TEXT PRIMARY KEY,
   name             TEXT NOT NULL,
@@ -62,6 +63,23 @@ CREATE TABLE IF NOT EXISTS kv (
   value TEXT
 );
 
+CREATE TABLE IF NOT EXISTS event_log (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at TEXT NOT NULL DEFAULT (${NOW}),
+  level      TEXT NOT NULL,
+  channel    TEXT,
+  sku        TEXT,
+  message    TEXT NOT NULL
+);
+`;
+
+// The core database: user accounts, sessions and the configured webshops.
+const CORE_SCHEMA = `
+CREATE TABLE IF NOT EXISTS kv (
+  key   TEXT PRIMARY KEY,
+  value TEXT
+);
+
 CREATE TABLE IF NOT EXISTS users (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   email         TEXT NOT NULL UNIQUE,
@@ -80,6 +98,23 @@ CREATE TABLE IF NOT EXISTS sessions (
   expires_at TEXT NOT NULL
 );
 
+-- Webshops. Credentials are stored encrypted (see secrets.js).
+CREATE TABLE IF NOT EXISTS shops (
+  id                    TEXT PRIMARY KEY,
+  name                  TEXT NOT NULL,
+  color                 TEXT NOT NULL,
+  position              INTEGER NOT NULL DEFAULT 0,
+  woo_base_url          TEXT,
+  woo_consumer_key      TEXT,
+  woo_consumer_secret   TEXT,
+  woo_webhook_secret    TEXT,
+  bol_client_id         TEXT,
+  bol_client_secret     TEXT,
+  bol_fulfilment_method TEXT NOT NULL DEFAULT 'FBR',
+  created_at            TEXT NOT NULL DEFAULT (${NOW}),
+  updated_at            TEXT NOT NULL DEFAULT (${NOW})
+);
+
 CREATE TABLE IF NOT EXISTS event_log (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   created_at TEXT NOT NULL DEFAULT (${NOW}),
@@ -90,24 +125,33 @@ CREATE TABLE IF NOT EXISTS event_log (
 );
 `;
 
-export function openDb(file) {
+function open(file, schema) {
   if (file !== ':memory:') mkdirSync(dirname(file), { recursive: true });
   const db = new DatabaseSync(file);
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
-  db.exec(SCHEMA);
-  migrate(db);
+  db.exec(schema);
+  return db;
+}
+
+/** Open (and create/migrate) the database of one webshop. */
+export function openDb(file) {
+  const db = open(file, SHOP_SCHEMA);
+  // Who booked a manual movement (receipt, stocktake, correction).
+  ensureColumn(db, 'stock_movements', 'user_name', 'TEXT');
+  return db;
+}
+
+/** Open (and create/migrate) the core database with users and webshops. */
+export function openCoreDb(file) {
+  const db = open(file, CORE_SCHEMA);
+  // Webshops a user may see (JSON array of shop ids); NULL = all webshops.
+  ensureColumn(db, 'users', 'shops', 'TEXT');
   return db;
 }
 
 function ensureColumn(db, table, column, definition) {
   const exists = db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column);
   if (!exists) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
-}
-
-/** Additive schema changes for databases created by an earlier version. */
-function migrate(db) {
-  // Who booked a manual movement (receipt, stocktake, correction).
-  ensureColumn(db, 'stock_movements', 'user_name', 'TEXT');
 }
 
 /** Run fn inside a write transaction; rolls back on error. */

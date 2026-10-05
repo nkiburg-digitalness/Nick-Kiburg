@@ -34,6 +34,13 @@ export class WooCommerceChannel {
     });
   }
 
+  /** Check the API keys; returns a short description for the dashboard. */
+  async testConnection() {
+    const { headers } = await this.#api('/products?per_page=1');
+    const total = headers.get('x-wp-total');
+    return total ? `verbonden – ${total} producten in de webshop` : 'verbonden';
+  }
+
   async pushStock(product, quantity) {
     if (!product.woo_product_id) throw new SkipSync('geen WooCommerce product-ID gekoppeld');
     const path = product.woo_variation_id

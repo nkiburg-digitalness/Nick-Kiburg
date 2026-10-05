@@ -49,6 +49,8 @@ function publicUser(row) {
     email: row.email,
     name: row.name,
     role: row.role,
+    // Webshops this user may see; null = all webshops (always the case for beheerders).
+    shops: row.role === 'beheerder' || !row.shops ? null : JSON.parse(row.shops),
     disabled: Boolean(row.disabled),
     createdAt: row.created_at,
     lastLoginAt: row.last_login_at,
@@ -77,7 +79,7 @@ export class Auth {
     return publicUser(this.db.prepare('SELECT * FROM users WHERE id = ?').get(id));
   }
 
-  async createUser({ email, name, role = 'medewerker', password }) {
+  async createUser({ email, name, role = 'medewerker', password, shops = null }) {
     email = normalizeEmail(email);
     if (!/^[^@\s]+@[^@\s]+$/.test(email)) throw new AuthError('Vul een geldig e-mailadres in');
     if (!String(name ?? '').trim()) throw new AuthError('Vul een naam in');
@@ -87,13 +89,13 @@ export class Auth {
       throw new AuthError('Er bestaat al een gebruiker met dit e-mailadres');
     }
     const row = this.db.prepare(`
-      INSERT INTO users (email, name, role, password_hash) VALUES (?, ?, ?, ?) RETURNING *
-    `).get(email, String(name).trim(), role, await hashPassword(password));
+      INSERT INTO users (email, name, role, password_hash, shops) VALUES (?, ?, ?, ?, ?) RETURNING *
+    `).get(email, String(name).trim(), role, await hashPassword(password), encodeShops(shops));
     return publicUser(row);
   }
 
   /** Update name/role/disabled. Refuses to leave the system without an active beheerder. */
-  updateUser(id, { name, role, disabled }) {
+  updateUser(id, { name, role, disabled, shops }) {
     const user = this.db.prepare('SELECT * FROM users WHERE id = ?').get(id);
     if (!user) throw new AuthError('Onbekende gebruiker', 404);
     if (role !== undefined && !ROLES[role]) throw new AuthError('Onbekende rol');
@@ -101,12 +103,14 @@ export class Auth {
       name: name !== undefined ? String(name).trim() || user.name : user.name,
       role: role ?? user.role,
       disabled: disabled !== undefined ? (disabled ? 1 : 0) : user.disabled,
+      shops: shops !== undefined ? encodeShops(shops) : user.shops,
     };
     const losesAdmin = user.role === 'beheerder' && !user.disabled && (next.role !== 'beheerder' || next.disabled);
     if (losesAdmin && this.#activeAdmins() <= 1) {
       throw new AuthError('Er moet minstens één actieve beheerder overblijven');
     }
-    this.db.prepare('UPDATE users SET name = ?, role = ?, disabled = ? WHERE id = ?').run(next.name, next.role, next.disabled, id);
+    this.db.prepare('UPDATE users SET name = ?, role = ?, disabled = ?, shops = ? WHERE id = ?')
+      .run(next.name, next.role, next.disabled, next.shops, id);
     if (next.disabled) this.db.prepare('DELETE FROM sessions WHERE user_id = ?').run(id);
     return this.getUser(id);
   }
@@ -183,6 +187,17 @@ export class Auth {
   #activeAdmins() {
     return this.db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'beheerder' AND disabled = 0").get().n;
   }
+}
+
+function encodeShops(shops) {
+  if (shops === null || shops === undefined) return null;
+  if (!Array.isArray(shops)) throw new AuthError('Ongeldige webshopselectie');
+  return JSON.stringify([...new Set(shops.map(String))]);
+}
+
+/** Can this user see the given webshop? */
+export function canAccessShop(user, shopId) {
+  return Boolean(user) && (user.shops === null || user.shops.includes(shopId));
 }
 
 function validatePassword(password) {

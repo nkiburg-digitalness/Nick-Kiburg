@@ -20,6 +20,13 @@
   --warning-ink: #7a5200;
   --serious-ink: #9a3d17;
   --critical-ink: #a32424;
+  /* Webshop identity colours (always shown together with the shop name) */
+  --shop-aqua: #1baf7a;
+  --shop-violet: #4a3aa7;
+  --shop-magenta: #e87ba4;
+  --shop-yellow: #eda100;
+  --shop-green: #008300;
+  --shop-red: #e34948;
   --shadow: 0 1px 2px rgb(0 0 0 / 0.05), 0 4px 16px rgb(0 0 0 / 0.04);
   --radius: 10px;
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -43,6 +50,12 @@
     --warning-ink: #fab219;
     --serious-ink: #f09a78;
     --critical-ink: #f08080;
+    --shop-aqua: #199e70;
+    --shop-violet: #9085e9;
+    --shop-magenta: #d55181;
+    --shop-yellow: #c98500;
+    --shop-green: #008300;
+    --shop-red: #e66767;
     --shadow: none;
   }
 }
@@ -63,6 +76,12 @@
   --warning-ink: #fab219;
   --serious-ink: #f09a78;
   --critical-ink: #f08080;
+  --shop-aqua: #199e70;
+  --shop-violet: #9085e9;
+  --shop-magenta: #d55181;
+  --shop-yellow: #c98500;
+  --shop-green: #008300;
+  --shop-red: #e66767;
   --shadow: none;
 }
 
@@ -250,6 +269,72 @@ button:disabled { opacity: 0.6; cursor: progress; }
 .login-form label { display: grid; gap: 4px; font-size: 12px; color: var(--text-2); }
 .login-form button { padding: 10px; }
 
+/* Webshops */
+.c-aqua { --shop: var(--shop-aqua); }
+.c-violet { --shop: var(--shop-violet); }
+.c-magenta { --shop: var(--shop-magenta); }
+.c-yellow { --shop: var(--shop-yellow); }
+.c-green { --shop: var(--shop-green); }
+.c-red { --shop: var(--shop-red); }
+.shop-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex: none; background: var(--shop, var(--text-3)); }
+.shop-tag { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-2); white-space: nowrap; }
+.shop-tabs {
+  display: flex; gap: 4px; padding: 0 24px; background: var(--surface); border-bottom: 1px solid var(--border);
+  overflow-x: auto; scrollbar-width: thin;
+}
+.shop-tabs button {
+  border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent;
+  padding: 11px 12px 9px; display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; color: var(--text-2);
+}
+.shop-tabs button:hover { background: var(--surface-2); color: var(--text); }
+.shop-tabs button[aria-selected="true"] { color: var(--text); font-weight: 600; border-bottom-color: var(--shop, var(--accent)); }
+.tab-count {
+  font-size: 11px; font-weight: 600; min-width: 18px; padding: 1px 6px; border-radius: 999px; text-align: center;
+  background: color-mix(in srgb, var(--serious) 18%, transparent); color: var(--serious-ink);
+}
+.shop-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.shop-card {
+  text-align: left; background: var(--surface); border: 1px solid var(--border); border-top: 3px solid var(--shop);
+  border-radius: var(--radius); padding: 14px 16px; box-shadow: var(--shadow); display: grid; gap: 10px; cursor: pointer;
+}
+.shop-card:hover { border-color: var(--text-3); border-top-color: var(--shop); background: var(--surface); }
+.shop-card h3 { display: flex; align-items: center; gap: 8px; color: var(--text); font-size: 15px; }
+.shop-card .figures { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.shop-card .figures div { display: grid; }
+.shop-card .figures b { font-size: 20px; font-variant-numeric: tabular-nums; }
+.shop-card .figures span { font-size: 11px; color: var(--text-2); }
+.shop-card .statuses { display: flex; gap: 6px; flex-wrap: wrap; min-height: 22px; }
+.shop-card .conn { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--text-2); }
+.shop-card .conn span { display: inline-flex; align-items: center; gap: 5px; }
+.shop-card .conn .err { color: var(--critical-ink); }
+.no-shops { padding: 24px; display: grid; gap: 10px; }
+.shop-list { display: grid; gap: 8px; }
+.shop-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; border: 1px solid var(--border); border-left: 4px solid var(--shop); border-radius: 8px; padding: 10px 12px; }
+.shop-row .grow { flex: 1; min-width: 180px; }
+.shop-row .meta { font-size: 12px; color: var(--text-2); display: flex; gap: 12px; flex-wrap: wrap; }
+.shop-row .ok { color: var(--good-ink); }
+.shop-row .missing { color: var(--serious-ink); }
+.shop-row .row-actions { display: flex; gap: 6px; }
+.shop-row .row-actions button { padding: 4px 8px; font-size: 12px; }
+.test-result { flex-basis: 100%; font-size: 12px; display: grid; gap: 2px; }
+.colors { border: 0; padding: 0; margin: 0; }
+.colors legend { font-size: 12px; color: var(--text-2); margin-bottom: 4px; }
+#shop-colors { display: flex; gap: 8px; flex-wrap: wrap; }
+#shop-colors label { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: 999px; padding: 4px 10px 4px 6px; cursor: pointer; font-size: 12px; color: var(--text-2); }
+#shop-colors input { margin: 0; }
+#shop-colors label:has(input:checked) { border-color: var(--shop); color: var(--text); box-shadow: 0 0 0 1px var(--shop); }
+.form-grid h4 { margin: 6px 0 -4px; font-size: 13px; font-weight: 600; }
+.copy-row { display: flex; gap: 8px; align-items: center; margin-top: 4px; }
+.copy-row code { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; }
+.copy-row button { padding: 4px 10px; font-size: 12px; }
+.field { display: grid; gap: 4px; font-size: 12px; color: var(--text-2); }
+.access { position: relative; }
+.access summary { cursor: pointer; font-size: 13px; list-style: none; display: inline-flex; gap: 4px; align-items: center; }
+.access summary::after { content: "▾"; color: var(--text-3); }
+.access .access-list { position: absolute; z-index: 5; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; display: grid; gap: 6px; min-width: 260px; box-shadow: 0 8px 24px rgb(0 0 0 / 0.14); }
+.access .access-list label { display: flex; align-items: center; gap: 8px; font-size: 13px; white-space: nowrap; }
+.users-inner .table-wrap { overflow: visible; }
+
 /* Status badges: always icon + label, never colour alone */
 .badge {
   display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
@@ -347,6 +432,7 @@ table.moves { width: 100%; border-collapse: collapse; font-size: 13px; }
 .tooltip .t-row b { font-variant-numeric: tabular-nums; }
 
 @media (max-width: 760px) {
+  .shop-tabs { padding: 0 8px; }
   .topbar { padding: 12px 16px; }
   main { padding: 16px 16px 40px; }
   .banner { padding: 8px 16px; }

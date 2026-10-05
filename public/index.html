@@ -12,7 +12,7 @@
       <svg class="brand-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5v-9Z M3 7.5l9 4.5 9-4.5 M12 12v9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
       <div>
         <h1>Voorraadbeheer</h1>
-        <p class="muted">tochtstripdeur.nl · Bol.com + webshop</p>
+        <p class="muted" id="brand-sub">Webshops · Bol.com</p>
       </div>
     </div>
     <div class="channels" id="channels"></div>
@@ -21,6 +21,7 @@
       <button id="user-button" aria-haspopup="menu" aria-expanded="false"><span class="avatar" id="avatar"></span><span id="user-name"></span></button>
       <div class="menu" id="user-dropdown" role="menu" hidden>
         <div class="menu-head"><b id="menu-name"></b><span class="muted small" id="menu-role"></span></div>
+        <button role="menuitem" data-menu="shops" data-min-role="beheerder">Webshops beheren</button>
         <button role="menuitem" data-menu="users" data-min-role="beheerder">Gebruikers beheren</button>
         <button role="menuitem" data-menu="import">Importeren / exporteren</button>
         <button role="menuitem" data-menu="account">Mijn account</button>
@@ -33,10 +34,25 @@
     Demo-modus: er worden gesimuleerde orders geplaatst en er gaat niets naar Bol.com of de webshop.
   </div>
 
+  <nav class="shop-tabs" id="shop-tabs" aria-label="Webshops" hidden></nav>
+
   <main>
+    <section class="panel no-shops" id="no-shops" hidden>
+      <h2>Nog geen webshops</h2>
+      <p class="muted" data-min-role="beheerder">Voeg uw eerste webshop toe via het menu rechtsboven → <b>Webshops beheren</b>.</p>
+      <p class="muted" id="no-shops-viewer">Er zijn nog geen webshops waar u toegang toe heeft. Vraag een beheerder om toegang.</p>
+      <div class="actions" style="justify-content:flex-start" data-min-role="beheerder"><button class="primary" id="add-first-shop">Webshop toevoegen</button></div>
+    </section>
+
     <section class="kpis" id="kpis" aria-label="Samenvatting"></section>
 
-    <section class="panel">
+    <section class="shop-cards" id="shop-cards" aria-label="Webshops" hidden></section>
+
+    <section class="panel" id="products-panel">
+      <div class="panel-head" id="products-head" hidden>
+        <h2>Actie nodig</h2>
+        <span class="muted small">producten die binnenkort of al uitverkocht zijn, in alle webshops</span>
+      </div>
       <div class="toolbar">
         <input type="search" id="search" placeholder="Zoek op naam, SKU of EAN" aria-label="Zoeken">
         <div class="segmented" id="status-filter" role="group" aria-label="Filter op status">
@@ -61,6 +77,7 @@
           <thead>
             <tr>
               <th data-sort="name">Product</th>
+              <th data-sort="shop" class="shop-col" hidden>Webshop</th>
               <th data-sort="stock" class="num">Voorraad</th>
               <th class="hide-sm">Kanalen</th>
               <th data-sort="avg" class="num hide-xs">Gem. / dag</th>
@@ -93,6 +110,7 @@
   <dialog class="modal" id="product-dialog">
     <form method="dialog" id="product-form" class="form-grid">
       <h2>Nieuw product</h2>
+      <label class="span-2" id="product-shop-label">Webshop<select name="shop" id="product-shop"></select></label>
       <label>SKU<input name="sku" required></label>
       <label>Naam<input name="name" required></label>
       <label>EAN<input name="ean" inputmode="numeric"></label>
@@ -118,7 +136,7 @@
       </div>
       <div class="table-wrap">
         <table class="moves users-table">
-          <thead><tr><th>Naam</th><th>Rol</th><th class="hide-sm">Laatst ingelogd</th><th></th></tr></thead>
+          <thead><tr><th>Naam</th><th>Rol</th><th>Webshops</th><th class="hide-sm">Laatst ingelogd</th><th></th></tr></thead>
           <tbody id="users-rows"></tbody>
         </table>
       </div>
@@ -147,6 +165,7 @@
         <div class="grow"><h2>Importeren / exporteren</h2><p class="muted small">Producten in één keer inlezen of bijwerken.</p></div>
         <button class="close" data-close aria-label="Sluiten">×</button>
       </div>
+      <label class="field" id="import-shop-label">Webshop<select id="import-shop"></select></label>
 
       <section class="mini-form" data-min-role="beheerder">
         <h3>1. Producten overnemen uit de webshop</h3>
@@ -158,7 +177,7 @@
         <h3>2. Productgegevens aanvullen via Excel</h3>
         <p class="muted small">Download de lijst, vul in Excel bijvoorbeeld EAN, levertijd en veiligheidsmarge aan, sla op als CSV en upload hem weer. Een ingevulde voorraad wordt als telling geboekt.</p>
         <div class="actions" style="justify-content:flex-start">
-          <a class="button" href="/api/export/products.csv" download>Productlijst downloaden</a>
+          <a class="button" id="export-link" href="#" download>Productlijst downloaden</a>
           <label class="button primary file-button" data-min-role="beheerder">CSV uploaden<input type="file" id="csv-file" accept=".csv,text/csv" hidden></label>
         </div>
       </section>
@@ -171,6 +190,47 @@
 
       <p class="explain" id="import-result" hidden></p>
       <p class="form-error" id="import-error" hidden></p>
+    </div>
+  </dialog>
+
+  <dialog class="modal" id="shops-dialog">
+    <div class="users-inner">
+      <div class="drawer-head">
+        <div class="grow"><h2>Webshops</h2><p class="muted small">Elke webshop heeft een eigen voorraad, eigen koppelingen en een eigen database – ze zitten elkaar niet in de weg.</p></div>
+        <button class="close" data-close aria-label="Sluiten">×</button>
+      </div>
+      <div class="shop-list" id="shop-list"></div>
+      <div class="actions" style="justify-content:flex-start"><button class="primary" id="new-shop">+ Webshop toevoegen</button></div>
+
+      <form id="shop-form" class="mini-form" hidden>
+        <h3 id="shop-form-title">Webshop toevoegen</h3>
+        <div class="form-grid" style="padding:0;width:auto">
+          <label>Naam<input name="name" required placeholder="bijv. Tochtstripdeur.nl"></label>
+          <label>Webadres van de webshop<input name="woo_base_url" placeholder="https://www.uwwebshop.nl"></label>
+          <fieldset class="span-2 colors"><legend>Kleur in het dashboard</legend><div id="shop-colors"></div></fieldset>
+          <h4 class="span-2">WooCommerce <span class="muted small">– WooCommerce → Instellingen → Geavanceerd → REST API (Lezen/Schrijven)</span></h4>
+          <label>Consumer key<input name="woo_consumer_key" autocomplete="off" spellcheck="false"></label>
+          <label>Consumer secret<input name="woo_consumer_secret" type="password" autocomplete="new-password"></label>
+          <h4 class="span-2">Bol.com <span class="muted small">– optioneel; Partnerplatform → Instellingen → API-instellingen</span></h4>
+          <label>Client ID<input name="bol_client_id" autocomplete="off" spellcheck="false"></label>
+          <label>Client secret<input name="bol_client_secret" type="password" autocomplete="new-password"></label>
+          <label class="span-2">Welke Bol-orders tellen mee?
+            <select name="bol_fulfilment_method">
+              <option value="FBR">Alleen orders die wij zelf versturen (FBR)</option>
+              <option value="ALL">Ook orders die Bol verstuurt (FBB)</option>
+            </select>
+          </label>
+          <p class="muted small span-2" id="shop-keys-hint" hidden>Opgeslagen sleutels worden niet getoond. Laat een veld leeg om de huidige waarde te behouden.</p>
+          <p class="form-error span-2" id="shop-error" hidden></p>
+          <div class="actions span-2">
+            <button type="button" class="danger" id="shop-delete" hidden>Webshop verwijderen</button>
+            <button type="button" id="shop-bol-off" hidden>Bol.com loskoppelen</button>
+            <button type="button" data-cancel>Annuleren</button>
+            <button class="primary" type="submit">Opslaan</button>
+          </div>
+        </div>
+      </form>
+      <div class="explain" id="shop-result" hidden></div>
     </div>
   </dialog>
 

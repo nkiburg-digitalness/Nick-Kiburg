@@ -26,16 +26,7 @@ services:
         sync: false
       - key: ADMIN_PASSWORD
         sync: false
-      # Koppelingen – mogen eerst leeg blijven en later worden ingevuld
-      - key: BOL_CLIENT_ID
-        sync: false
-      - key: BOL_CLIENT_SECRET
-        sync: false
-      - key: WOO_BASE_URL
-        value: https://tochtstripdeur.nl
-      - key: WOO_CONSUMER_KEY
-        sync: false
-      - key: WOO_CONSUMER_SECRET
-        sync: false
-      - key: WOO_WEBHOOK_SECRET
+      # Versleutelt de API-sleutels van de webshops (wordt automatisch gegenereerd)
+      - key: SECRET_KEY
         generateValue: true
+      # Webshops en hun koppelingen voegt u toe in het dashboard: Webshops beheren.

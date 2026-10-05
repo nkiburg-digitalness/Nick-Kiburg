@@ -31,13 +31,28 @@ const ROLE_LABEL = { kijker: 'Alleen bekijken', medewerker: 'Medewerker', beheer
 const state = {
   me: null,
   data: null,
+  shop: 'all', // selected tab: 'all' or a webshop id
   windowDays: 30,
   filter: 'all',
   search: '',
   sort: { key: 'status', asc: true },
-  openSku: null,
+  open: null, // { shop, sku } of the product shown in the drawer
   flash: new Set(),
 };
+
+const shopInfo = (id) => state.data?.shops.find((s) => s.id === id) ?? null;
+const shopBase = (id) => `/api/shops/${encodeURIComponent(id)}`;
+const productKey = (shop, sku) => `${shop}/${sku}`;
+
+function shopTag(id) {
+  const s = shopInfo(id);
+  if (!s) return '';
+  return `<span class="shop-tag c-${esc(s.color)}"><i class="shop-dot"></i>${esc(s.name)}</span>`;
+}
+
+function rememberShop() {
+  try { localStorage.setItem('voorraad.shop', state.shop); } catch { /* ignore */ }
+}
 
 function esc(value) {
   return String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -112,11 +127,34 @@ function hideTooltip() {
 
 /* ---------------------------------------------------------------- data */
 async function load() {
-  state.data = await api(`/api/overview?window=${state.windowDays}`);
+  let data;
+  try {
+    data = await api(`/api/overview?shop=${encodeURIComponent(state.shop)}&window=${state.windowDays}`);
+  } catch (err) {
+    if (state.shop === 'all') throw err;
+    state.shop = 'all'; // webshop removed or no longer accessible
+    return load();
+  }
+  // With a single webshop there is no "all" view: show that webshop directly.
+  if (data.shops.length === 1 && state.shop !== data.shops[0].id) {
+    state.shop = data.shops[0].id;
+    return load();
+  }
+  state.data = data;
   render();
   // Refresh an open product, but never while the user is typing in one of its forms.
   const typing = detail.contains(document.activeElement) && document.activeElement.matches('input, select');
-  if (state.openSku && !typing) renderDetail(state.openSku, { keepScroll: true });
+  if (state.open && !typing) renderDetail(state.open, { keepScroll: true });
+}
+
+function selectShop(id) {
+  if (state.shop === id) return;
+  state.shop = id;
+  state.filter = 'all';
+  $$('#status-filter button').forEach((b) => b.classList.toggle('active', b.dataset.filter === 'all'));
+  rememberShop();
+  load().catch(console.error);
+  loadActivity().catch(console.error);
 }
 
 let reloadTimer = null;
@@ -128,14 +166,81 @@ function scheduleReload() {
 /* ---------------------------------------------------------------- render */
 function render() {
   const { data } = state;
+  const all = state.shop === 'all';
+  const none = data.shops.length === 0;
   $('#demo-banner').hidden = !data.demoMode;
+  $('#no-shops').hidden = !none;
+  $('#no-shops-viewer').hidden = can('beheerder');
+  $('#kpis').hidden = none;
+  $('#products-panel').hidden = none;
+  $('#shop-cards').hidden = !all || none;
+  $('#products-head').hidden = !all;
+  $$('.shop-col').forEach((el) => { el.hidden = !all; });
+  const current = shopInfo(state.shop);
+  $('#brand-sub').textContent = all ? `${data.shops.length} webshops` : `${current?.name ?? ''} · ${current?.hasBol ? 'webshop + Bol.com' : 'webshop'}`;
+  renderTabs();
   renderChannels();
   renderKpis();
+  if (all) renderShopCards();
   renderRows();
 }
 
+function actionCount(s) {
+  return s.summary.warning + s.summary.critical + s.summary.out;
+}
+
+function renderTabs() {
+  const { shops } = state.data;
+  const nav = $('#shop-tabs');
+  nav.hidden = shops.length < 2;
+  if (nav.hidden) return;
+  const tab = (id, label, color, count) => `<button role="tab" data-shop="${esc(id)}" class="${color ? `c-${esc(color)}` : ''}" aria-selected="${state.shop === id}">
+    ${color ? '<i class="shop-dot"></i>' : ''}${esc(label)}${count ? `<span class="tab-count" title="${count} product(en) bijna of al uitverkocht">${count}</span>` : ''}</button>`;
+  const total = shops.reduce((n, s) => n + actionCount(s), 0);
+  nav.innerHTML = tab('all', 'Alle webshops', null, total) + shops.map((s) => tab(s.id, s.name, s.color, actionCount(s))).join('');
+}
+
+function channelLine(s) {
+  const parts = [];
+  for (const c of s.channels) {
+    if (c.name === 'bol' && !c.connected && !s.hasBol) continue;
+    let text;
+    if (state.data.demoMode) text = c.connected ? 'demo' : 'niet gekoppeld';
+    else if (!c.connected) text = 'niet gekoppeld';
+    else if (c.lastError) text = '<span class="err">storing</span>';
+    else text = `gecontroleerd ${relTime(c.lastPollAt)}`;
+    parts.push(`<span title="${esc(c.lastError ?? '')}"><i class="swatch ${c.name}"></i>${c.label}: ${text}</span>`);
+  }
+  return parts.join('');
+}
+
+function renderShopCards() {
+  $('#shop-cards').innerHTML = state.data.shops.map((s) => {
+    const sm = s.summary;
+    const statuses = [
+      sm.out ? `${badge('out')} ${sm.out}` : '',
+      sm.critical ? `${badge('critical')} ${sm.critical}` : '',
+      sm.warning ? `${badge('warning')} ${sm.warning}` : '',
+    ].filter(Boolean).join(' ') || badge('ok');
+    return `<button class="shop-card c-${esc(s.color)}" data-shop="${esc(s.id)}">
+      <h3><i class="shop-dot"></i>${esc(s.name)}</h3>
+      <div class="figures">
+        <div><b>${nf.format(sm.products)}</b><span>producten</span></div>
+        <div><b>${nf.format(sm.stock)}</b><span>stuks voorraad</span></div>
+        <div><b>${nf.format(sm.soldToday.bol + sm.soldToday.woocommerce)}</b><span>verkocht vandaag</span></div>
+      </div>
+      <div class="statuses">${statuses}</div>
+      <div class="conn">${channelLine(s)}</div>
+    </button>`;
+  }).join('');
+}
+
 function renderChannels() {
-  $('#channels').innerHTML = state.data.channels.map((c) => {
+  const s = state.shop === 'all' ? null : shopInfo(state.shop);
+  const box = $('#channels');
+  box.hidden = !s;
+  if (!s) return;
+  box.innerHTML = s.channels.filter((c) => c.connected || c.name === 'woocommerce' || s.hasBol).map((c) => {
     let text;
     if (state.data.demoMode) text = 'demo';
     else if (!c.connected) text = 'niet gekoppeld';
@@ -146,16 +251,17 @@ function renderChannels() {
 }
 
 function renderKpis() {
-  const products = state.data.products;
-  const totalStock = products.reduce((n, p) => n + Math.max(0, p.stock), 0);
-  const today = { bol: 0, woocommerce: 0 };
-  for (const p of products) for (const c of Object.keys(today)) today[c] += p.soldToday?.[c] ?? 0;
-  const action = products.filter((p) => ['warning', 'critical'].includes(p.forecast.status));
-  const critical = action.filter((p) => p.forecast.status === 'critical').length;
-  const out = products.filter((p) => p.forecast.status === 'out').length;
+  const shops = state.shop === 'all' ? state.data.shops : state.data.shops.filter((s) => s.id === state.shop);
+  const sum = (fn) => shops.reduce((n, s) => n + fn(s.summary), 0);
+  const productCount = sum((m) => m.products);
+  const totalStock = sum((m) => m.stock);
+  const today = { bol: sum((m) => m.soldToday.bol), woocommerce: sum((m) => m.soldToday.woocommerce) };
+  const critical = sum((m) => m.critical);
+  const action = { length: critical + sum((m) => m.warning) };
+  const out = sum((m) => m.out);
   $('#kpis').innerHTML = `
-    <div class="kpi"><div class="label">Producten</div><div class="value">${nf.format(products.length)}</div>
-      <div class="sub">${nf.format(totalStock)} stuks op voorraad</div></div>
+    <div class="kpi"><div class="label">Producten</div><div class="value">${nf.format(productCount)}</div>
+      <div class="sub">${nf.format(totalStock)} stuks op voorraad${state.shop === 'all' ? ` · ${shops.length} webshops` : ''}</div></div>
     <div class="kpi"><div class="label">Verkocht vandaag</div><div class="value">${nf.format(today.bol + today.woocommerce)}</div>
       <div class="sub"><span><i class="swatch bol"></i>Bol.com ${nf.format(today.bol)}</span><span><i class="swatch woocommerce"></i>Webshop ${nf.format(today.woocommerce)}</span></div></div>
     <button class="kpi" data-filter="action"><div class="label">Actie nodig</div><div class="value">${nf.format(action.length)}</div>
@@ -169,6 +275,7 @@ function sortValue(p, key) {
   const f = p.forecast;
   switch (key) {
     case 'name': return p.name.toLowerCase();
+    case 'shop': return (shopInfo(p.shop)?.name ?? '').toLowerCase();
     case 'stock': return p.stock;
     case 'avg': return f.avgPerDay;
     case 'daysLeft': return f.daysLeft ?? Infinity;
@@ -197,8 +304,11 @@ function visibleProducts() {
 }
 
 function syncCell(p) {
-  return `<div class="sync">${['bol', 'woocommerce'].map((c) => {
-    const ch = state.data.channels.find((x) => x.name === c);
+  const s = shopInfo(p.shop);
+  // Webshops (or products) not on Bol.com show only the webshop line.
+  const names = ['woocommerce', 'bol'].filter((c) => c === 'woocommerce' || (s?.hasBol && p.bol_offer_id) || p.pendingSync.bol);
+  return `<div class="sync">${names.map((c) => {
+    const ch = s.channels.find((x) => x.name === c);
     const pend = p.pendingSync[c];
     const pushed = p.channelStock[c];
     let st;
@@ -237,13 +347,17 @@ function runway(f, p) {
 function renderRows() {
   const list = visibleProducts();
   $('#empty').hidden = list.length > 0;
+  $('#empty').textContent = state.shop === 'all' && !state.search
+    ? 'Alles op voorraad – in geen enkele webshop is nu actie nodig.'
+    : 'Geen producten gevonden.';
   const sparkDays = Math.min(30, state.windowDays);
   $('#rows').innerHTML = list.map((p) => {
     const f = p.forecast;
     const trend = f.trendPct === null ? '' : `<span class="trend">${f.trendPct >= 0 ? '▲' : '▼'} ${Math.abs(f.trendPct)}% laatste 7 d</span>`;
     const lastDays = p.salesPerDay.slice(-sparkDays);
-    return `<tr data-sku="${esc(p.sku)}" class="${state.flash.has(p.sku) ? 'flash' : ''}">
+    return `<tr data-shop="${esc(p.shop)}" data-sku="${esc(p.sku)}" class="${state.flash.has(productKey(p.shop, p.sku)) ? 'flash' : ''}">
       <td><div class="pname">${esc(p.name)}</div><div class="psku">${esc(p.sku)}</div></td>
+      ${state.shop === 'all' ? `<td>${shopTag(p.shop)}</td>` : ''}
       <td class="num"><span class="stock ${p.stock < 0 ? 'neg' : ''}">${nf.format(p.stock)}</span></td>
       <td class="hide-sm">${syncCell(p)}</td>
       <td class="num hide-xs">${nf2.format(f.avgPerDay)}${trend}</td>
@@ -273,25 +387,27 @@ function orderByText(day) {
 /* ---------------------------------------------------------------- detail */
 const detail = $('#detail');
 
-async function openDetail(sku) {
-  state.openSku = sku;
+async function openDetail(shop, sku) {
+  state.open = { shop, sku };
   $('#detail-body').innerHTML = '<p class="muted">Laden…</p>';
   if (!detail.open) detail.showModal();
-  await renderDetail(sku);
+  await renderDetail(state.open);
 }
 
-async function renderDetail(sku, { keepScroll = false } = {}) {
-  const p = state.data.products.find((x) => x.sku === sku);
+async function renderDetail({ shop, sku }, { keepScroll = false } = {}) {
+  const p = state.data.products.find((x) => x.shop === shop && x.sku === sku);
   if (!p) {
     detail.close();
     return;
   }
+  const base = `${shopBase(shop)}/products/${encodeURIComponent(sku)}`;
   const historyWindow = Math.max(60, state.windowDays);
   const [history, moves] = await Promise.all([
-    api(`/api/products/${encodeURIComponent(sku)}/history?window=${historyWindow}`),
-    api(`/api/products/${encodeURIComponent(sku)}/movements`),
+    api(`${base}/history?window=${historyWindow}`),
+    api(`${base}/movements`),
   ]);
-  if (state.openSku !== sku) return;
+  if (state.open?.shop !== shop || state.open?.sku !== sku) return;
+  const shopHasBol = shopInfo(shop)?.hasBol || Boolean(p.bol_offer_id);
   const scroll = detail.scrollTop;
   const f = p.forecast;
   const body = $('#detail-body');
@@ -303,6 +419,7 @@ async function renderDetail(sku, { keepScroll = false } = {}) {
       <div class="grow">
         <h2>${esc(p.name)}</h2>
         <div class="psku">${esc(p.sku)}${p.ean ? ` · EAN ${esc(p.ean)}` : ''}</div>
+        ${state.data.shops.length > 1 ? `<div style="margin-top:4px">${shopTag(shop)}</div>` : ''}
       </div>
       ${badge(f.status)}
       <button class="close" data-close aria-label="Sluiten">×</button>
@@ -346,7 +463,7 @@ async function renderDetail(sku, { keepScroll = false } = {}) {
     <div class="chart-card">
       <h3>Kanalen</h3>
       <div class="channel-rows">
-        ${['bol', 'woocommerce'].map((c) => {
+        ${['woocommerce', 'bol'].filter((c) => c === 'woocommerce' || shopHasBol).map((c) => {
           const pushed = p.channelStock[c];
           const pend = p.pendingSync[c];
           const linked = c === 'bol' ? p.bol_offer_id : p.woo_product_id;
@@ -381,7 +498,7 @@ async function renderDetail(sku, { keepScroll = false } = {}) {
         <label>Veiligheidsmarge (dagen)<input name="safety_days" type="number" min="0" value="${p.safety_days}"></label>
         <label>WooCommerce product-ID<input name="woo_product_id" value="${esc(p.woo_product_id ?? '')}"></label>
         <label>WooCommerce variatie-ID<input name="woo_variation_id" value="${esc(p.woo_variation_id ?? '')}"></label>
-        <label class="span-2">Bol.com offer-ID<input name="bol_offer_id" value="${esc(p.bol_offer_id ?? '')}"></label>
+        ${shopHasBol ? `<label class="span-2">Bol.com offer-ID<input name="bol_offer_id" value="${esc(p.bol_offer_id ?? '')}"></label>` : ''}
         <div class="actions span-2"><button type="button" class="danger" data-action="delete" data-min-role="beheerder">Product verwijderen</button><button class="primary">Opslaan</button></div>
       </div>
     </form>
@@ -557,13 +674,14 @@ function salesChart(el, history, f) {
 function activityItem(row, isNew = false) {
   const li = document.createElement('li');
   li.className = `${row.level}${isNew ? ' new' : ''}`;
+  const tag = state.shop === 'all' && row.shop ? `${shopTag(row.shop)} · ` : '';
   li.innerHTML = `<time datetime="${row.created_at}" title="${dateTimeFmt.format(new Date(row.created_at))}">${timeFmt.format(new Date(row.created_at))}</time>
-    <i class="marker ${row.channel ?? ''}"></i><span class="msg">${esc(row.message)}</span>`;
+    <i class="marker ${row.channel ?? ''}"></i><span class="msg">${tag}${esc(row.message)}</span>`;
   return li;
 }
 
 async function loadActivity() {
-  const rows = await api('/api/log');
+  const rows = await api(`/api/log?shop=${encodeURIComponent(state.shop)}`);
   const list = $('#activity');
   list.replaceChildren(...rows.map((r) => activityItem(r)));
 }
@@ -583,7 +701,14 @@ function connectEvents() {
   };
   source.onmessage = (msg) => {
     const event = JSON.parse(msg.data);
+    if (event.type === 'shops') {
+      // Webshops were added, changed or removed.
+      scheduleReload();
+      return;
+    }
+    const relevant = state.shop === 'all' || event.shop === state.shop;
     if (event.type === 'log') {
+      if (!relevant || (state.shop !== 'all' && !event.shop)) return;
       const list = $('#activity');
       list.prepend(activityItem(event.payload, true));
       while (list.children.length > 150) list.lastChild.remove();
@@ -591,20 +716,23 @@ function connectEvents() {
     }
     if (event.type === 'poll') {
       // A routine order check: only the channel status changes, no need to reload all products.
-      const channel = state.data?.channels.find((c) => c.name === event.payload.channel);
+      const channel = shopInfo(event.shop)?.channels.find((c) => c.name === event.payload.channel);
       if (channel) {
         channel.lastPollAt = event.payload.lastRunAt ?? channel.lastPollAt;
         channel.lastError = event.payload.lastError;
         renderChannels();
+        if (state.shop === 'all') renderShopCards();
       }
       return;
     }
+    if (!relevant) return; // another webshop: its tab refreshes when opened
     const sku = event.payload?.sku;
     if (sku && event.type === 'product') {
-      state.flash.add(sku);
+      const key = productKey(event.shop, sku);
+      state.flash.add(key);
       setTimeout(() => {
-        state.flash.delete(sku);
-        $(`tr[data-sku="${CSS.escape(sku)}"]`)?.classList.remove('flash');
+        state.flash.delete(key);
+        $(`tr[data-shop="${CSS.escape(event.shop)}"][data-sku="${CSS.escape(sku)}"]`)?.classList.remove('flash');
       }, 1500);
     }
     scheduleReload();
@@ -642,8 +770,17 @@ function bindUi() {
   }));
   $('#rows').addEventListener('click', (e) => {
     const tr = e.target.closest('tr[data-sku]');
-    if (tr) openDetail(tr.dataset.sku);
+    if (tr) openDetail(tr.dataset.shop, tr.dataset.sku);
   });
+  $('#shop-tabs').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-shop]');
+    if (btn) selectShop(btn.dataset.shop);
+  });
+  $('#shop-cards').addEventListener('click', (e) => {
+    const card = e.target.closest('[data-shop]');
+    if (card) selectShop(card.dataset.shop);
+  });
+  $('#add-first-shop').addEventListener('click', () => openShops({ add: true }));
   $('#rows').addEventListener('pointermove', (e) => {
     const svg = e.target.closest('svg.spark');
     if (!svg) return hideTooltip();
@@ -661,34 +798,38 @@ function bindUi() {
       return;
     }
     const action = e.target.closest('[data-action]')?.dataset.action;
-    const sku = state.openSku;
+    if (!state.open) return;
+    const { shop, sku } = state.open;
+    const base = `${shopBase(shop)}/products/${encodeURIComponent(sku)}`;
     if (action === 'resync') {
-      await api(`/api/products/${encodeURIComponent(sku)}/resync`, { method: 'POST' });
+      await api(`${base}/resync`, { method: 'POST' });
     } else if (action === 'delete') {
       if (confirm(`Product ${sku} en alle historie verwijderen? De voorraad op Bol.com en de webshop blijft staan.`)) {
-        await api(`/api/products/${encodeURIComponent(sku)}`, { method: 'DELETE' });
+        await api(base, { method: 'DELETE' });
         detail.close();
         load();
       }
     }
   });
   detail.addEventListener('close', () => {
-    state.openSku = null;
+    state.open = null;
     hideTooltip();
   });
   detail.addEventListener('submit', async (e) => {
     e.preventDefault();
     const form = e.target;
-    const sku = state.openSku;
+    if (!state.open) return;
+    const { shop, sku } = state.open;
+    const base = `${shopBase(shop)}/products`;
     const values = Object.fromEntries(new FormData(form));
     try {
       if (form.dataset.form === 'receipt') {
-        await api(`/api/products/${encodeURIComponent(sku)}/adjust`, { method: 'POST', body: { delta: Number(values.delta), type: 'receipt', note: values.note || 'Levering' } });
+        await api(`${base}/${encodeURIComponent(sku)}/adjust`, { method: 'POST', body: { delta: Number(values.delta), type: 'receipt', note: values.note || 'Levering' } });
       } else if (form.dataset.form === 'count') {
-        await api(`/api/products/${encodeURIComponent(sku)}/count`, { method: 'POST', body: { count: Number(values.count) } });
+        await api(`${base}/${encodeURIComponent(sku)}/count`, { method: 'POST', body: { count: Number(values.count) } });
       } else if (form.dataset.form === 'settings') {
         for (const k of ['lead_time_days', 'safety_days']) values[k] = Number(values[k]);
-        await api('/api/products', { method: 'POST', body: { sku, ...values } });
+        await api(base, { method: 'POST', body: { sku, ...values } });
       }
       form.reset();
       await load();
@@ -700,6 +841,8 @@ function bindUi() {
   const dialog = $('#product-dialog');
   $('#add-product').addEventListener('click', () => {
     $('#product-form').reset();
+    fillShopSelect($('#product-shop'));
+    $('#product-shop-label').hidden = state.data.shops.length < 2;
     $('.form-error', dialog).hidden = true;
     dialog.showModal();
   });
@@ -708,16 +851,10 @@ function bindUi() {
   });
   $('#product-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const values = Object.fromEntries(new FormData(e.target));
+    const { shop, ...values } = Object.fromEntries(new FormData(e.target));
     for (const k of ['stock', 'lead_time_days', 'safety_days']) values[k] = Number(values[k] || 0);
-    if (state.data.products.some((p) => p.sku === values.sku)) {
-      const err = $('.form-error', dialog);
-      err.textContent = 'Er bestaat al een product met deze SKU.';
-      err.hidden = false;
-      return;
-    }
     try {
-      await api('/api/products', { method: 'POST', body: values });
+      await api(`${shopBase(shop)}/products`, { method: 'POST', body: { ...values, create: true } });
       dialog.close();
       await load();
     } catch (err) {
@@ -726,6 +863,12 @@ function bindUi() {
       box.hidden = false;
     }
   });
+}
+
+/** Webshop picker for dialogs: defaults to the selected tab (or the first webshop). */
+function fillShopSelect(select) {
+  const current = state.shop !== 'all' ? state.shop : state.data.shops[0]?.id;
+  select.innerHTML = state.data.shops.map((s) => `<option value="${esc(s.id)}" ${s.id === current ? 'selected' : ''}>${esc(s.name)}</option>`).join('');
 }
 
 /* ---------------------------------------------------------------- users & account */
@@ -759,9 +902,15 @@ function bindUserMenu() {
       location.href = '/login';
     } else if (action === 'users') {
       openUsers();
+    } else if (action === 'shops') {
+      openShops();
     } else if (action === 'import') {
+      if (!state.data.shops.length) return alert('Voeg eerst een webshop toe.');
       $('#import-result').hidden = true;
       $('#import-error').hidden = true;
+      fillShopSelect($('#import-shop'));
+      $('#import-shop-label').hidden = state.data.shops.length < 2;
+      updateExportLink();
       $('#import-dialog').showModal();
     } else if (action === 'account') {
       const dialog = $('#account-dialog');
@@ -798,6 +947,8 @@ function bindUserMenu() {
   });
 
   const importDialog = $('#import-dialog');
+  const importShop = () => $('#import-shop').value;
+  $('#import-shop').addEventListener('change', updateExportLink);
   const showImport = (html, isError = false) => {
     $('#import-result').hidden = isError;
     $('#import-error').hidden = !isError;
@@ -822,10 +973,10 @@ function bindUserMenu() {
     const button = e.target.closest('[data-import]');
     if (!button) return;
     if (button.dataset.import === 'woocommerce') {
-      runImport(button, async () => `Producten uit de webshop: ${summary(await api('/api/import/woocommerce', { method: 'POST' }))}`);
+      runImport(button, async () => `Producten uit de webshop: ${summary(await api(`${shopBase(importShop())}/import/woocommerce`, { method: 'POST' }))}`);
     } else if (button.dataset.import === 'backfill') {
       runImport(button, async () => {
-        const r = await api('/api/backfill', { method: 'POST', body: { days: 90 } });
+        const r = await api(`${shopBase(importShop())}/backfill`, { method: 'POST', body: { days: 90 } });
         const parts = Object.entries(r.orderLines).map(([c, n]) => `${CHANNELS[c] ?? c}: ${n} orderregels`);
         return `Verkoophistorie van ${r.days} dagen ingelezen. ${parts.join(', ')}.`;
       });
@@ -843,7 +994,7 @@ function bindUserMenu() {
       const bytes = await file.arrayBuffer();
       let csv = new TextDecoder('utf-8').decode(bytes);
       if (csv.includes('\uFFFD')) csv = new TextDecoder('windows-1252').decode(bytes);
-      const r = await api('/api/import/csv', { method: 'POST', body: { csv } });
+      const r = await api(`${shopBase(importShop())}/import/csv`, { method: 'POST', body: { csv } });
       showImport(`${esc(file.name)}: ${summary(r)}`);
       await load();
     } catch (ex) {
@@ -874,8 +1025,22 @@ function bindUserMenu() {
     });
   });
   users.addEventListener('change', async (e) => {
-    if (!e.target.matches('select[data-role-for]')) return;
-    await usersAction(() => api(`/api/users/${e.target.dataset.roleFor}`, { method: 'PATCH', body: { role: e.target.value } }));
+    if (e.target.matches('select[data-role-for]')) {
+      await usersAction(() => api(`/api/users/${e.target.dataset.roleFor}`, { method: 'PATCH', body: { role: e.target.value } }));
+    } else if (e.target.matches('[data-access-for] input')) {
+      const box = e.target.closest('[data-access-for]');
+      const allBox = $('input[value="*"]', box);
+      if (e.target === allBox) $$('input:not([value="*"])', box).forEach((i) => { i.checked = allBox.checked; });
+      const picked = $$('input:not([value="*"]):checked', box).map((i) => i.value);
+      const total = $$('input:not([value="*"])', box).length;
+      const shops = allBox.checked && e.target === allBox ? null : (picked.length === total ? null : picked);
+      if (shops && !shops.length) {
+        $('#users-error').textContent = 'Kies minstens één webshop (of blokkeer de gebruiker).';
+        $('#users-error').hidden = false;
+        return renderUsers();
+      }
+      await usersAction(() => api(`/api/users/${box.dataset.accessFor}`, { method: 'PATCH', body: { shops } }));
+    }
   });
   $('#user-form').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -886,6 +1051,10 @@ function bindUserMenu() {
       showNewPassword(user.name, password, user.email);
     });
   });
+}
+
+function updateExportLink() {
+  $('#export-link').href = `${shopBase($('#import-shop').value)}/export/products.csv`;
 }
 
 function showNewPassword(name, password, email) {
@@ -915,6 +1084,18 @@ async function openUsers() {
   $('#users-dialog').showModal();
 }
 
+function accessCell(u) {
+  if (u.role === 'beheerder') return '<span class="muted small">alle (beheerder)</span>';
+  const shops = state.data.shops;
+  const all = u.shops === null;
+  const label = all ? 'Alle webshops' : u.shops.map((id) => shopInfo(id)?.name ?? id).join(', ') || 'geen';
+  return `<details class="access"><summary>${esc(label)}</summary>
+    <div class="access-list" data-access-for="${u.id}">
+      <label><input type="checkbox" value="*" ${all ? 'checked' : ''}> <b>Alle webshops</b> <span class="muted small">(ook nieuwe)</span></label>
+      ${shops.map((s) => `<label class="c-${esc(s.color)}"><input type="checkbox" value="${esc(s.id)}" ${all || u.shops.includes(s.id) ? 'checked' : ''}><i class="shop-dot"></i>${esc(s.name)}</label>`).join('')}
+    </div></details>`;
+}
+
 async function renderUsers() {
   const list = await api('/api/users');
   const me = state.me.user.id;
@@ -923,12 +1104,165 @@ async function renderUsers() {
     <td>${u.id === me ? ROLE_LABEL[u.role] : `<select data-role-for="${u.id}" aria-label="Rol van ${esc(u.name)}">
       ${Object.entries(ROLE_LABEL).map(([r, l]) => `<option value="${r}" ${r === u.role ? 'selected' : ''}>${l}</option>`).join('')}</select>`}
       ${u.disabled ? '<div class="muted small">geblokkeerd</div>' : ''}</td>
+    <td>${accessCell(u)}</td>
     <td class="hide-sm muted">${u.lastLoginAt ? dateTimeFmt.format(new Date(u.lastLoginAt)) : 'nog nooit'}</td>
     <td>${u.id === me ? '' : `<div class="row-actions">
       <button data-user-action="password">Nieuw wachtwoord</button>
       <button data-user-action="toggle" data-disabled="${u.disabled ? 1 : 0}">${u.disabled ? 'Deblokkeren' : 'Blokkeren'}</button>
       <button data-user-action="delete" class="danger">Verwijderen</button></div>`}</td>
   </tr>`).join('');
+}
+
+/* ---------------------------------------------------------------- webshops (beheerder) */
+const COLOR_LABEL = { aqua: 'Groenblauw', violet: 'Paars', magenta: 'Roze', yellow: 'Geel', green: 'Groen', red: 'Rood' };
+let shopAdmin = { shops: [], colors: [], editing: null };
+
+async function openShops({ add = false } = {}) {
+  $('#shop-result').hidden = true;
+  $('#shop-form').hidden = true;
+  await renderShopList();
+  if (!$('#shops-dialog').open) $('#shops-dialog').showModal();
+  if (add) showShopForm(null);
+}
+
+async function renderShopList() {
+  const { shops, colors } = await api('/api/shops');
+  shopAdmin = { ...shopAdmin, shops, colors };
+  $('#shop-list').innerHTML = shops.length ? shops.map((s) => `<div class="shop-row c-${esc(s.color)}" data-id="${esc(s.id)}">
+      <i class="shop-dot"></i>
+      <div class="grow"><b>${esc(s.name)}</b>
+        <div class="meta">
+          <span>${esc(s.woo_base_url ?? 'geen webadres ingevuld')}</span>
+          <span class="${s.has_woo_keys ? 'ok' : 'missing'}">WooCommerce: ${s.has_woo_keys ? 'sleutels ingevuld' : 'sleutels ontbreken'}</span>
+          <span class="${s.has_bol_keys ? 'ok' : ''}">Bol.com: ${s.has_bol_keys ? `gekoppeld (${esc(s.bol_client_id_hint)})` : 'niet gebruikt'}</span>
+          <span>${nf.format(s.products)} producten</span>
+        </div>
+      </div>
+      <div class="row-actions">
+        <button data-shop-action="test">Verbinding testen</button>
+        <button data-shop-action="webhook">Webhook-gegevens</button>
+        <button data-shop-action="edit">Bewerken</button>
+      </div>
+      <div class="test-result" hidden></div>
+    </div>`).join('') : '<p class="muted">Nog geen webshops. Voeg de eerste toe.</p>';
+}
+
+function showShopForm(shop) {
+  const form = $('#shop-form');
+  form.reset();
+  shopAdmin.editing = shop?.id ?? null;
+  $('#shop-form-title').textContent = shop ? `${shop.name} bewerken` : 'Webshop toevoegen';
+  const used = new Set(shopAdmin.shops.map((s) => s.color));
+  const color = shop?.color ?? shopAdmin.colors.find((c) => !used.has(c)) ?? shopAdmin.colors[0];
+  $('#shop-colors').innerHTML = shopAdmin.colors.map((c) => `<label class="c-${c}"><input type="radio" name="color" value="${c}" ${c === color ? 'checked' : ''}><i class="shop-dot"></i>${COLOR_LABEL[c] ?? c}</label>`).join('');
+  if (shop) {
+    form.name.value = shop.name;
+    form.woo_base_url.value = shop.woo_base_url ?? '';
+    form.bol_fulfilment_method.value = shop.bol_fulfilment_method;
+    for (const f of ['woo_consumer_key', 'woo_consumer_secret']) form[f].placeholder = shop.has_woo_keys ? '•••••• (opgeslagen)' : '';
+    for (const f of ['bol_client_id', 'bol_client_secret']) form[f].placeholder = shop.has_bol_keys ? '•••••• (opgeslagen)' : 'optioneel';
+  } else {
+    for (const f of ['bol_client_id', 'bol_client_secret']) form[f].placeholder = 'optioneel';
+  }
+  $('#shop-keys-hint').hidden = !shop;
+  $('#shop-delete').hidden = !shop;
+  $('#shop-bol-off').hidden = !shop?.has_bol_keys;
+  $('#shop-error').hidden = true;
+  form.hidden = false;
+  form.name.focus();
+}
+
+function showWebhookInfo(shop, intro = '') {
+  const url = `${location.origin}${shop.webhook_path}`;
+  const box = $('#shop-result');
+  box.innerHTML = `${intro}<b>Webhooks voor ${esc(shop.name)}</b> – maak in WooCommerce (Instellingen → Geavanceerd → Webhooks) twee webhooks aan:
+    <i>Order aangemaakt</i> en <i>Order bijgewerkt</i>, status Actief, API-versie v3, met:
+    <div class="copy-row"><span class="muted small" style="width:90px">Aflever-URL</span><code>${esc(url)}</code><button data-copy="${esc(url)}">Kopiëren</button></div>
+    <div class="copy-row"><span class="muted small" style="width:90px">Geheim</span><code>${esc(shop.webhook_secret)}</code><button data-copy="${esc(shop.webhook_secret)}">Kopiëren</button></div>`;
+  box.hidden = false;
+}
+
+function bindShops() {
+  const dialog = $('#shops-dialog');
+  const form = $('#shop-form');
+  dialog.addEventListener('click', async (e) => {
+    if (e.target === dialog || e.target.closest('[data-close]')) return dialog.close();
+    const copy = e.target.closest('[data-copy]');
+    if (copy) {
+      try {
+        await navigator.clipboard.writeText(copy.dataset.copy);
+        copy.textContent = 'Gekopieerd';
+      } catch {
+        copy.textContent = 'Selecteer en kopieer handmatig';
+      }
+      return;
+    }
+    if (e.target.closest('[data-cancel]')) {
+      form.hidden = true;
+      return;
+    }
+    const btn = e.target.closest('[data-shop-action]');
+    if (!btn) return;
+    const row = btn.closest('.shop-row');
+    const shop = shopAdmin.shops.find((s) => s.id === row.dataset.id);
+    if (btn.dataset.shopAction === 'edit') {
+      showShopForm(shop);
+    } else if (btn.dataset.shopAction === 'webhook') {
+      showWebhookInfo(shop);
+    } else if (btn.dataset.shopAction === 'test') {
+      const out = $('.test-result', row);
+      out.hidden = false;
+      out.textContent = 'Testen…';
+      btn.disabled = true;
+      try {
+        const r = await api(`/api/shops/${encodeURIComponent(shop.id)}/test`, { method: 'POST' });
+        const line = (label, t) => `<span class="${t.ok ? 'ok' : t.ok === null ? 'muted' : 'missing'}">${t.ok ? '✓' : t.ok === null ? '–' : '✗'} ${label}: ${esc(t.message)}</span>`;
+        out.innerHTML = line('WooCommerce', r.woocommerce) + line('Bol.com', r.bol);
+      } catch (ex) {
+        out.textContent = ex.message;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+  });
+  $('#new-shop').addEventListener('click', () => showShopForm(null));
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const values = Object.fromEntries(new FormData(form));
+    const editing = shopAdmin.editing;
+    try {
+      const saved = editing
+        ? await api(`/api/shops/${encodeURIComponent(editing)}`, { method: 'PATCH', body: values })
+        : await api('/api/shops', { method: 'POST', body: values });
+      form.hidden = true;
+      await renderShopList();
+      showWebhookInfo(saved, editing ? 'Opgeslagen. ' : 'Webshop toegevoegd. ');
+      await load();
+    } catch (ex) {
+      $('#shop-error').textContent = ex.message;
+      $('#shop-error').hidden = false;
+    }
+  });
+  $('#shop-bol-off').addEventListener('click', async () => {
+    const shop = shopAdmin.shops.find((s) => s.id === shopAdmin.editing);
+    if (!shop || !confirm(`Bol.com loskoppelen van ${shop.name}? Er worden dan geen Bol-orders meer opgehaald en geen voorraad meer naar Bol.com gestuurd.`)) return;
+    await api(`/api/shops/${encodeURIComponent(shop.id)}`, { method: 'PATCH', body: { bol_client_id: null, bol_client_secret: null } });
+    form.hidden = true;
+    await renderShopList();
+    await load();
+  });
+  $('#shop-delete').addEventListener('click', async () => {
+    const shop = shopAdmin.shops.find((s) => s.id === shopAdmin.editing);
+    if (!shop) return;
+    const answer = prompt(`Webshop ${shop.name} verwijderen? De synchronisatie stopt en de webshop verdwijnt uit het dashboard. De gegevens blijven als reservekopie op de server bewaard.\n\nTyp de naam van de webshop om te bevestigen:`);
+    if (answer === null) return;
+    if (answer.trim() !== shop.name) return alert('De naam komt niet overeen; er is niets verwijderd.');
+    await api(`/api/shops/${encodeURIComponent(shop.id)}`, { method: 'DELETE' });
+    form.hidden = true;
+    $('#shop-result').hidden = true;
+    await renderShopList();
+    await load();
+  });
 }
 
 /* ---------------------------------------------------------------- start */
@@ -938,12 +1272,18 @@ try {
     state.windowDays = Number(saved);
     $('#window').value = saved;
   }
+  state.shop = localStorage.getItem('voorraad.shop') || 'all';
 } catch { /* storage unavailable */ }
 
 state.me = await api('/api/me');
 renderUserMenu();
 bindUi();
 bindUserMenu();
+bindShops();
 await Promise.all([load(), loadActivity()]);
 connectEvents();
-setInterval(renderChannels, 15000);
+setInterval(() => {
+  if (!state.data) return;
+  renderChannels();
+  if (state.shop === 'all') renderShopCards();
+}, 15000);

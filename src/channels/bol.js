@@ -55,6 +55,14 @@ export class BolChannel {
     }
   }
 
+  /** Check the API credentials; returns a short description for the dashboard. */
+  async testConnection() {
+    this.token = null;
+    const data = await this.#api(`/retailer/orders?${new URLSearchParams({ 'fulfilment-method': this.config.fulfilmentMethod, status: 'OPEN', page: '1' })}`);
+    const open = data?.orders?.length ?? 0;
+    return `verbonden – ${open}${open === 50 ? '+' : ''} openstaande order(s)`;
+  }
+
   /** Push the central stock to the Bol offer. */
   async pushStock(product, quantity) {
     if (!product.bol_offer_id) throw new SkipSync('geen Bol offer-ID gekoppeld');

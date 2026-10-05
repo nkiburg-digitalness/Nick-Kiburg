@@ -1,12 +1,13 @@
-# Voorraadbeheer tochtstripdeur.nl
+# Voorraadbeheer voor meerdere webshops
 
-Centraal voorraadbeheer voor **Bol.com** en de **eigen webshop (WooCommerce)**:
+Centraal voorraadbeheer voor **WooCommerce-webshops** en **Bol.com**, voor één of meer webshops in één dashboard (bijv. tochtstripdeur.nl en drie andere webshops):
 
-- **Real-time synchronisatie** – verkoopt u een artikel via Bol.com, dan wordt de voorraad in de webshop direct aangepast, en omgekeerd.
-- **Eén centrale voorraad** – het systeem is leidend; beide kanalen krijgen altijd dezelfde, actuele voorraad.
+- **Meerdere webshops, één dashboard** – een tab per webshop plus een overzicht *Alle webshops*. Elke webshop heeft een eigen voorraad, eigen koppelingen en een eigen database; ze zitten elkaar niet in de weg.
+- **Real-time synchronisatie** – verkoopt u een artikel via Bol.com, dan wordt de voorraad in de webshop direct aangepast, en omgekeerd. Bol.com is per webshop optioneel.
+- **Eén centrale voorraad per webshop** – het systeem is leidend; de webshop en Bol.com krijgen altijd dezelfde, actuele voorraad.
 - **Uitverkoopvoorspelling** – per product: gemiddelde verkoop per dag, over hoeveel dagen het uitverkocht is, uiterste besteldatum en een besteladvies.
 - **Live dashboard** – voorraad, synchronisatiestatus per kanaal, grafieken en een live activiteitenlog.
-- **Voor het hele team** – eigen login per collega met een rol; bij elke mutatie staat wie hem heeft geboekt.
+- **Voor het hele team** – eigen login per collega met een rol en, desgewenst, toegang tot alleen bepaalde webshops; bij elke mutatie staat wie hem heeft geboekt.
 - **24/7 online** – draait op een server (niet op een laptop), met automatische herstart en dagelijkse back-up.
 
 Geen externe afhankelijkheden: alleen Node.js 22.13 of hoger (met ingebouwde SQLite).
@@ -19,7 +20,18 @@ Geen externe afhankelijkheden: alleen Node.js 22.13 of hoger (met ingebouwde SQL
 npm run demo
 ```
 
-Open <http://localhost:3000> en log in met `demo@tochtstripdeur.nl` / `demo-wachtwoord` (staat ook op de inlogpagina). De demo vult 8 voorbeeldproducten met 90 dagen verkoophistorie en plaatst elke ~12 seconden een gesimuleerde order op Bol.com of de webshop, zodat u de live-synchronisatie ziet. Er wordt niets naar Bol.com of de webshop gestuurd.
+Open <http://localhost:3000> en log in met `demo@tochtstripdeur.nl` / `demo-wachtwoord` (staat ook op de inlogpagina). De demo vult vier voorbeeldwebshops (twee met Bol.com) met producten en 90 dagen verkoophistorie, en plaatst regelmatig gesimuleerde orders, zodat u de live-synchronisatie ziet. Er wordt niets naar Bol.com of de webshop gestuurd.
+
+## Meerdere webshops
+
+- **Alle webshops** (eerste tab): per webshop een kaart met producten, voorraad, verkopen van vandaag en de status van de koppelingen, plus één lijst met alles wat bijna of al uitverkocht is – met de webshop erbij.
+- **Een tab per webshop**: de volledige productlijst, voorspellingen en grafieken van die webshop. Het getal op de tab = aantal producten dat bijna of al uitverkocht is.
+- **Gescheiden**: elke webshop heeft een eigen database, eigen WooCommerce- en (optioneel) Bol.com-koppeling, een eigen webhook-adres en een eigen synchronisatie. Een storing of verkeerde sleutel bij de ene webshop raakt de andere niet.
+- **Beheer** (menu → *Webshops beheren*): webshops toevoegen, sleutels invullen of vervangen, verbinding testen, Bol.com los- of aankoppelen. De sleutels worden versleuteld opgeslagen.
+
+![Eén webshop](docs/webshop.png)
+
+![Webshops beheren](docs/webshops-beheren.png)
 
 ## Hoe het werkt
 
@@ -94,7 +106,7 @@ Wat er voor continu gebruik al in zit:
 
 ### Optie A: Render – zelf te regelen, geen serverbeheer (aanbevolen)
 
-Alles via de website van Render, zonder commando's: het meegeleverde `render.yaml` stelt de server, de EU-regio (Frankfurt), de opslag en de back-ups automatisch in. $7,25 per maand (Starter-server $7 + 1 GB opslag $0,25; de Hobby-workspace is gratis). Volg **[docs/installatie-render.md](docs/installatie-render.md)**.
+Alles via de website van Render, zonder commando's: het meegeleverde `render.yaml` stelt de server, de EU-regio (Frankfurt), de opslag en de back-ups automatisch in. $7,25 per maand voor al uw webshops samen (Starter-server $7 + 1 GB opslag $0,25; de Hobby-workspace is gratis). Volg **[docs/installatie-render.md](docs/installatie-render.md)**.
 
 ### Optie B: bestaande VPS met Plesk (bijv. Snel.com)
 
@@ -128,25 +140,21 @@ npm start                 # laat dit draaien via bijv. systemd of pm2, achter ee
 
 Zie [24/7 online: hosting](#247-online-hosting). Vul in `.env` in elk geval de eerste beheerder in (`ADMIN_EMAIL`, `ADMIN_NAME`, `ADMIN_PASSWORD`).
 
-### 2. Bol.com koppelen
+### 2. Webshops toevoegen en koppelen
 
-1. Partnerplatform → **Instellingen → API-instellingen** → Retailer API → credentials aanmaken.
-2. Zet `BOL_CLIENT_ID` en `BOL_CLIENT_SECRET` in `.env`.
-3. Producten worden aan Bol-orders gekoppeld via de **EAN**. Het Bol **offer-ID** (nodig om de voorraad bij te werken) wordt bij de eerste Bol-order automatisch opgehaald; u kunt het ook zelf invullen bij het product.
+In het dashboard: menu rechtsboven → **Webshops beheren** → **+ Webshop toevoegen**, per webshop:
 
-### 3. WooCommerce koppelen
+1. **Naam, webadres en kleur.**
+2. **WooCommerce-sleutels:** WooCommerce → **Instellingen → Geavanceerd → REST API** → sleutel toevoegen met rechten **Lezen/Schrijven**.
+3. **Bol.com-sleutels (optioneel):** Partnerplatform → **Instellingen → API-instellingen** → Retailer API → credentials aanmaken. Producten worden aan Bol-orders gekoppeld via de **EAN**; het Bol **offer-ID** wordt bij de eerste Bol-order automatisch opgehaald (of vul het zelf in bij het product).
+4. **Webhooks:** na het opslaan toont het dashboard per webshop een eigen Aflever-URL (`https://<uw-server>/webhooks/woocommerce/<webshop>`) en een eigen geheim. Maak daarmee in WooCommerce → **Instellingen → Geavanceerd → Webhooks** twee webhooks aan: **Order aangemaakt** en **Order bijgewerkt** (API-versie v3).
+5. **Verbinding testen** controleert direct of de sleutels werken.
 
-1. WooCommerce → **Instellingen → Geavanceerd → REST API** → sleutel toevoegen met rechten **Lezen/Schrijven**. Zet de sleutels in `WOO_CONSUMER_KEY` / `WOO_CONSUMER_SECRET`.
-2. WooCommerce → **Instellingen → Geavanceerd → Webhooks** → maak er twee aan:
-   - Onderwerp **Order aangemaakt** en **Order bijgewerkt**
-   - Aflever-URL: `https://<uw-server>/webhooks/woocommerce`
-   - Geheim: dezelfde waarde als `WOO_WEBHOOK_SECRET`
-   - API-versie: WP REST API Integration v3
-3. Zorg dat bij elk product in WooCommerce **"Voorraad beheren"** aan staat en dat de **SKU** is ingevuld (wordt ook automatisch aangezet bij de eerste synchronisatie).
+De sleutels worden versleuteld opgeslagen met `SECRET_KEY` en nooit meer teruggestuurd naar de browser. Zorg dat bij elk product in WooCommerce de **SKU** is ingevuld; "Voorraad beheren" wordt bij de eerste synchronisatie automatisch aangezet.
 
 ### 4. Producten inlezen en live gaan
 
-Het makkelijkst via het dashboard: menu rechtsboven → **Importeren / exporteren**:
+Het makkelijkst via het dashboard: menu rechtsboven → **Importeren / exporteren** → kies de webshop:
 
 1. **Producten uit webshop overnemen** (gekoppeld op SKU).
 2. **Productlijst downloaden**, in Excel EAN, levertijd en veiligheidsmarge aanvullen, en als CSV weer **uploaden**.
@@ -156,10 +164,10 @@ Of op de commandoregel:
 
 ```bash
 # Optie A: alle producten (incl. variaties) uit de webshop overnemen, gekoppeld op SKU
-npm run import -- --woocommerce
+npm run import -- <webshop-id> --woocommerce
 
 # Optie B: een CSV-bestand (zie voorbeeld-producten.csv)
-npm run import -- producten.csv
+npm run import -- <webshop-id> producten.csv
 ```
 
 Vul daarna per product de **EAN** (voor Bol.com), **levertijd** en **veiligheidsmarge** in – via het dashboard of de CSV. Controleer de voorraadstanden (een telling kan via het dashboard) en start de server: vanaf dat moment is deze voorraad leidend en wordt hij naar beide kanalen gestuurd.
@@ -167,7 +175,7 @@ Vul daarna per product de **EAN** (voor Bol.com), **levertijd** en **veiligheids
 ```bash
 # Optioneel: verkoophistorie van de afgelopen 90 dagen inlezen, zodat de voorspelling
 # direct klopt. Dit verandert de voorraad niet.
-npm run backfill
+npm run backfill -- <webshop-id>
 ```
 
 Orders die vóór het live-gaan zijn geplaatst, tellen alleen mee als historie voor de voorspelling – ze zitten immers al in de ingevoerde voorraad.
@@ -185,7 +193,8 @@ Orders die vóór het live-gaan zijn geplaatst, tellen alleen mee als historie v
 
 ## Goed om te weten
 
-- **Webshopplatform**: deze koppeling gaat uit van **WooCommerce**. Draait tochtstripdeur.nl op een ander platform (bijv. Shopify, Lightspeed of CCV Shop), dan hoeft alleen `src/channels/woocommerce.js` te worden vervangen door een koppeling met dezelfde functies (`pushStock`, orders boeken).
+- **Webshopplatform**: de koppeling is voor **WooCommerce**. Voor een ander platform (bijv. Shopify of Lightspeed) is een extra koppeling nodig met dezelfde functies als `src/channels/woocommerce.js` (`pushStock`, orders boeken).
+- **Webshops zijn gescheiden**: hetzelfde artikelnummer in twee webshops zijn twee aparte producten met elk een eigen voorraad. Een gedeelde voorraad tussen webshops wordt niet ondersteund.
 - **Bol.com**: alleen **FBR**-orders (zelf verzenden) tellen standaard mee; FBB-voorraad ligt bij Bol zelf. Bol accepteert een voorraad van maximaal 999 per aanbieding.
 - **Bol.com-vertraging**: omdat Bol.com geen order-webhooks biedt, duurt het maximaal ~60 seconden (`BOL_POLL_INTERVAL_SECONDS`) voordat een Bol-verkoop in de webshop zichtbaar is. Webshopverkopen staan binnen enkele seconden op Bol.com.
 - **Overselling**: verkopen beide kanalen tegelijk het laatste stuk, dan kan de voorraad negatief worden; het dashboard toont dit in rood en beide kanalen krijgen 0.
@@ -199,12 +208,14 @@ npm test          # unit- en integratietests (Bol.com en WooCommerce API's gesim
 
 | Map | Inhoud |
 |---|---|
-| `src/inventory.js` | centraal grootboek: verkopen, annuleringen, ontvangsten, tellingen |
+| `src/shops.js` | webshops: instellingen (versleutelde sleutels) en per webshop een eigen database, koppelingen en synchronisatie |
+| `src/inventory.js` | grootboek per webshop: verkopen, annuleringen, ontvangsten, tellingen |
 | `src/forecast.js` | voorspelling (gemiddelde verkoop, dagen tot uitverkocht, besteladvies) |
 | `src/sync.js` | wachtrij die voorraad naar de kanalen stuurt, met herhaalpogingen |
 | `src/channels/bol.js` | Bol.com Retailer API (orders ophalen, voorraad bijwerken) |
 | `src/channels/woocommerce.js` | WooCommerce REST API + webhooks |
-| `src/server.js` | HTTP-API, login, webhook-endpoint en live-updates (Server-Sent Events) |
+| `src/server.js` | HTTP-API, login, webhook-endpoint per webshop en live-updates (Server-Sent Events) |
+| `src/secrets.js` | versleuteling van de API-sleutels (AES-256-GCM) |
 | `src/auth.js` | gebruikers, rollen, wachtwoorden en sessies |
 | `src/backup.js` | dagelijkse back-up van de database |
 | `public/` | dashboard |

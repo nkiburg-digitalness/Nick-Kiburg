@@ -9,8 +9,9 @@ if (config.demoMode) app.demoLogin = DEMO_LOGIN;
 const server = createHttpServer(app);
 
 server.listen(config.port, () => {
-  const connected = Object.keys(app.channels).join(', ') || 'geen';
-  console.log(`Voorraadbeheer draait op http://localhost:${config.port} (kanalen: ${connected}${config.demoMode ? ', DEMO-modus' : ''})`);
+  const shops = app.shops.all().map((rt) => `${rt.shop.name} (${Object.keys(rt.channels).join(', ') || 'niet gekoppeld'})`);
+  console.log(`Voorraadbeheer draait op http://localhost:${config.port}${config.demoMode ? ' – DEMO-modus' : ''}`);
+  console.log(`Webshops: ${shops.join('; ') || 'nog geen – voeg ze toe in het dashboard (Webshops beheren)'}`);
   if (config.demoMode) console.log(`Demo-login: ${DEMO_LOGIN.email} / ${DEMO_LOGIN.password}`);
   if (!app.auth.hasUsers()) {
     console.warn('Er zijn nog geen gebruikers. Zet ADMIN_EMAIL en ADMIN_PASSWORD in .env en herstart, of gebruik: npm run gebruiker -- toevoegen');

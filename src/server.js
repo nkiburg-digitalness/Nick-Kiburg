@@ -284,14 +284,22 @@ export function createHttpServer(app) {
       send(res, 200, result);
     }, { shop: true }],
 
-    // Products that are not in the webshop (e.g. added from Bol.com earlier), for cleaning up.
+    // For cleaning up: products that are not in the webshop (e.g. added from Bol.com
+    // earlier) and sales listings without components (their stock item is gone).
     ['GET', new RegExp(`^${SHOP}/unlinked$`), 'beheerder', ({ res, rt }) => send(res, 200, rt.inventory.unlinkedProducts()), { shop: true }],
     ['POST', new RegExp(`^${SHOP}/unlinked/delete$`), 'beheerder', async ({ req, res, user, rt }) => {
-      const { skus } = await readJson(req);
-      const allowed = new Set(rt.inventory.unlinkedProducts().map((p) => p.sku));
+      const { skus, listingIds } = await readJson(req);
+      const unlinked = rt.inventory.unlinkedProducts();
+      const allowedSkus = new Set(unlinked.filter((p) => !p.listingId).map((p) => p.sku));
+      const allowedListings = new Set(unlinked.filter((p) => p.listingId).map((p) => p.listingId));
       let deleted = 0;
+      for (const id of Array.isArray(listingIds) ? listingIds.map(Number) : []) {
+        if (!allowedListings.has(id)) continue;
+        rt.inventory.deleteListing(id, { userName: user.name });
+        deleted++;
+      }
       for (const s of Array.isArray(skus) ? skus : []) {
-        if (!allowed.has(s)) continue;
+        if (!allowedSkus.has(s)) continue;
         rt.inventory.deleteProduct(s, { userName: user.name });
         deleted++;
       }

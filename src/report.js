@@ -41,7 +41,7 @@ export function linkReport(inventory, { hasWoo = true, hasBol = false, bolUnmatc
     const notes = [];
     if (!l.woo_product_id && !l.bol_offer_id && !l.ean) notes.push('Niet gekoppeld aan webshop of Bol.com');
     if (hasBol && !l.woo_product_id && l.ean && !l.bol_offer_id) notes.push('Bol-aanbieding nog niet gevonden: koppel de Bol.com-aanbiedingen opnieuw');
-    if (!l.components.length) notes.push('Geen onderdelen: verkopen worden nergens van afgeboekt. Stel de onderdelen in (of gebruik Verpakkingen en meters herkennen)');
+    if (!l.components.length) notes.push('Geen onderdelen: verkopen worden nergens van afgeboekt. Uit het assortiment? Verwijder het via Opruimen. Anders: Verpakkingen en meters herkennen');
     else if (!l.available.known) notes.push('Een onderdeel is nog niet geteld');
     rows.push({
       Soort: 'Verkoopartikel',

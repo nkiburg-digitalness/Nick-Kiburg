@@ -69,6 +69,8 @@ export function suggestPacks(inventory) {
   for (const g of groups.values()) {
     g.variants.sort((a, b) => a.quantity - b.quantity);
     const single = g.unit === 'stuks' ? g.variants.find((v) => v.quantity === 1 && !v.listingId) : null;
+    // Only listings left whose stock item was deleted (e.g. out of the assortment): leave them.
+    if (!single && g.variants.every((v) => v.listingId)) continue;
     // A group only makes sense with at least two amounts, or one amount > 1 for metres.
     if (g.variants.length < 2 && !(g.unit === 'meter' && g.variants[0]?.quantity > 1)) continue;
     const suffix = g.rest.length ? `-${slug(g.rest.join('-'))}` : '';

@@ -65,6 +65,8 @@ test('a stock item used by listings cannot be deleted; listings that lost it are
   db.prepare("DELETE FROM products WHERE sku = 'TS-1'").run();
   const orphan = inventory.listListings().find((l) => l.name === 'Tochtstrip wit – 2 stuks');
   assert.deepEqual([orphan.components.length, orphan.available.known], [0, false]);
+  assert.deepEqual(inventory.unlinkedProducts().filter((p) => p.listingId).map((p) => p.name), ['Tochtstrip wit – 2 stuks', 'Tochtstrip wit – 4 st.']);
+  assert.equal(suggestPacks(inventory).find((g) => g.title === 'Tochtstrip wit'), undefined, 'only orphans left: not proposed');
 
   // The webshop import brings back the 1-piece variation; recognising packs relinks.
   inventory.upsertProduct({ sku: 'TS-1', name: 'Tochtstrip wit – 1 stuk', woo_product_id: 10, woo_variation_id: 11, stock: 120 });

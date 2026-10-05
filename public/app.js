@@ -1093,20 +1093,24 @@ function bindUserMenu() {
         box.hidden = !items.length;
         if (!items.length) {
           box.innerHTML = '';
-          return 'Alle producten staan in de webshop. Er is niets op te ruimen.';
+          return 'Er is niets op te ruimen.';
         }
-        box.innerHTML = `<div class="pack-group">${items.map((p) => `<label style="font-weight:400"><input type="checkbox" value="${esc(p.sku)}" ${p.fromBol ? 'checked' : ''}> ${esc(p.name)} <span class="muted small">${esc(p.sku)}${p.ean ? ` · EAN ${esc(p.ean)}` : ''}${p.fromBol ? ' · vanuit Bol.com toegevoegd' : ''}</span></label>`).join('')}</div>
+        box.innerHTML = `<div class="pack-group">${items.map((p) => `<label style="font-weight:400"><input type="checkbox" ${p.listingId ? `data-listing="${p.listingId}"` : `value="${esc(p.sku)}"`} ${p.fromBol || p.listingId ? 'checked' : ''}> ${esc(p.name)} <span class="muted small">${p.listingId ? 'verkoopartikel zonder voorraadartikel' : esc(p.sku)}${p.ean ? ` · EAN ${esc(p.ean)}` : ''}${p.fromBol ? ' · vanuit Bol.com toegevoegd' : ''}</span></label>`).join('')}</div>
           <div class="actions" style="justify-content:flex-start"><button class="danger" data-import="unlinked-delete">Aangevinkte verwijderen</button></div>`;
         const fromBol = items.filter((p) => p.fromBol).length;
-        return `${items.length} product(en) zonder webshopkoppeling gevonden${fromBol ? `, waarvan ${fromBol} vanuit Bol.com toegevoegd (alvast aangevinkt)` : ''}. Controleer de lijst en klik op <i>Aangevinkte verwijderen</i>.`;
+        const orphans = items.filter((p) => p.listingId).length;
+        const products = items.length - orphans;
+        return `Gevonden: ${[orphans ? `${orphans} verkoopartikel(en) zonder voorraadartikel (alvast aangevinkt)` : '', products ? `${products} product(en) zonder webshopkoppeling${fromBol ? `, waarvan ${fromBol} vanuit Bol.com toegevoegd (alvast aangevinkt)` : ''}` : ''].filter(Boolean).join(' en ')}. Controleer de lijst en klik op <i>Aangevinkte verwijderen</i>.`;
       });
     } else if (button.dataset.import === 'unlinked-delete') {
-      const skus = $$('#unlinked-box input[type=checkbox]:checked').map((i) => i.value);
-      if (!skus.length || !confirm(`${skus.length} product(en) verwijderen uit het dashboard? De webshop en Bol.com worden niet aangepast.`)) return;
+      const checked = $$('#unlinked-box input[type=checkbox]:checked');
+      const skus = checked.filter((i) => !i.dataset.listing).map((i) => i.value);
+      const listingIds = checked.filter((i) => i.dataset.listing).map((i) => Number(i.dataset.listing));
+      if (!checked.length || !confirm(`${checked.length} item(s) verwijderen uit het dashboard? De webshop en Bol.com worden niet aangepast.`)) return;
       runImport(button, async () => {
-        const r = await api(`${shopBase(importShop())}/unlinked/delete`, { method: 'POST', body: { skus } });
+        const r = await api(`${shopBase(importShop())}/unlinked/delete`, { method: 'POST', body: { skus, listingIds } });
         $('#unlinked-box').hidden = true;
-        return `${r.deleted} product(en) verwijderd.`;
+        return `${r.deleted} item(s) verwijderd.`;
       });
     } else if (button.dataset.import === 'backfill') {
       runImport(button, async () => {

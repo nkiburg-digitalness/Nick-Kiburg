@@ -145,16 +145,23 @@ export class Inventory {
   }
 
   /**
-   * Products without a webshop link that are not part of a sales listing either –
-   * e.g. products added from Bol.com earlier. `fromBol` marks the ones that were
-   * created automatically from a Bol.com offer.
+   * What can be cleaned up: products without a webshop link that are not part of a
+   * sales listing either (e.g. added from Bol.com earlier; `fromBol` marks those), and
+   * sales listings without components (`listingId` set).
    */
   unlinkedProducts() {
-    return this.db.prepare(`
+    const products = this.db.prepare(`
       SELECT sku, name, ean, stock, bol_offer_id, name LIKE 'Bol.com-product %' AS fromBol FROM products p
       WHERE woo_product_id IS NULL AND NOT EXISTS (SELECT 1 FROM listing_components c WHERE c.item_sku = p.sku)
       ORDER BY fromBol DESC, name COLLATE NOCASE
-    `).all().map((p) => ({ ...p, fromBol: Boolean(p.fromBol) }));
+    `).all().map((p) => ({ ...p, fromBol: Boolean(p.fromBol), listingId: null }));
+    // Sales listings whose stock item is gone: nothing can be booked for them.
+    const orphans = this.db.prepare(`
+      SELECT id, sku, name, ean, bol_offer_id FROM listings l
+      WHERE NOT EXISTS (SELECT 1 FROM listing_components c WHERE c.listing_id = l.id)
+      ORDER BY name COLLATE NOCASE
+    `).all().map((l) => ({ sku: l.sku ?? '', name: l.name, ean: l.ean, stock: null, bol_offer_id: l.bol_offer_id, fromBol: false, listingId: l.id }));
+    return [...orphans, ...products];
   }
 
   /** Names of the sales listings that use this stock item. */

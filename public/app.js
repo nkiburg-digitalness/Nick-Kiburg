@@ -309,7 +309,8 @@ function visibleProducts() {
     if (state.filter === 'action' && !['warning', 'critical'].includes(p.forecast.status)) return false;
     if (state.filter === 'out' && p.forecast.status !== 'out') return false;
     if (!q) return true;
-    return [p.name, p.sku, p.ean].some((v) => v && String(v).toLowerCase().includes(q));
+    // Also find the stock items of a sales listing, e.g. "pakket" finds strip and tape.
+    return [p.name, p.sku, p.ean, ...(p.usedIn ?? []).map((u) => u.name)].some((v) => v && String(v).toLowerCase().includes(q));
   });
   const { key, asc } = state.sort;
   list = list.sort((a, b) => {
@@ -318,6 +319,16 @@ function visibleProducts() {
     return (va < vb ? -1 : va > vb ? 1 : 0) * (asc ? 1 : -1);
   });
   return list;
+}
+
+function usedInCell(p) {
+  if (!p.usedIn?.length) return '';
+  const q = state.search.trim().toLowerCase();
+  const hits = q ? p.usedIn.filter((u) => u.name.toLowerCase().includes(q)) : [];
+  if (hits.length) {
+    return `<div class="used-in">in: ${hits.map((u) => `${esc(u.name)} (${u.quantity}${p.unit === 'meter' ? ' m' : '×'})`).join(', ')}</div>`;
+  }
+  return `<div class="used-in" title="${esc(p.usedIn.map((u) => `${u.name} (${u.quantity}×)`).join(', '))}">+ ${p.usedIn.length} verkoopartikel${p.usedIn.length > 1 ? 'en' : ''}</div>`;
 }
 
 function syncCell(p) {
@@ -377,7 +388,7 @@ function renderRows() {
     const trend = f.trendPct === null ? '' : `<span class="trend">${f.trendPct >= 0 ? '▲' : '▼'} ${Math.abs(f.trendPct)}% laatste 7 d</span>`;
     const lastDays = p.salesPerDay.slice(-sparkDays);
     return `<tr data-shop="${esc(p.shop)}" data-sku="${esc(p.sku)}" class="${state.flash.has(productKey(p.shop, p.sku)) ? 'flash' : ''}">
-      <td><div class="pname">${esc(p.name)}</div><div class="psku">${esc(p.sku)}</div>${p.usedIn?.length ? `<div class="used-in" title="${esc(p.usedIn.map((u) => `${u.name} (${u.quantity}×)`).join(', '))}">+ ${p.usedIn.length} verkoopartikel${p.usedIn.length > 1 ? 'en' : ''}</div>` : ''}</td>
+      <td><div class="pname">${esc(p.name)}</div><div class="psku">${esc(p.sku)}</div>${usedInCell(p)}</td>
       ${state.shop === 'all' ? `<td>${shopTag(p.shop)}</td>` : ''}
       <td class="num">${p.stock_confirmed ? `<span class="stock ${p.stock < 0 ? 'neg' : ''}">${withUnit(p.stock, p.unit)}</span>` : '<span class="stock muted" title="Voorraad nog niet geteld – wordt niet naar de kanalen gestuurd">?</span>'}</td>
       <td class="hide-sm">${syncCell(p)}</td>

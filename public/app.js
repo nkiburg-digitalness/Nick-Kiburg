@@ -1043,7 +1043,7 @@ function bindUserMenu() {
     if (button.dataset.import === 'woocommerce') {
       runImport(button, async () => {
         const r = await api(`${shopBase(importShop())}/import/woocommerce`, { method: 'POST' });
-        return `Producten uit de webshop: ${summary(r)}${r.uncounted ? `<br><b>${r.uncounted} product(en) hebben in WooCommerce geen voorraadaantal</b> ("Voorraad beheren" staat uit). Die staan op <i>Nog niet geteld</i> en worden pas naar de kanalen gestuurd na een voorraadtelling – via de Excel-lijst (kolom stock) of per product.` : ''}`;
+        return `Producten uit de webshop: ${summary(r)}${r.uncounted ? `<br><b>${r.uncounted} product(en) hebben in WooCommerce geen voorraadaantal</b> ("Voorraad beheren" staat uit). Die staan op <i>Nog niet geteld</i> en worden pas naar de kanalen gestuurd na een voorraadtelling – via de Excel-lijst (kolom stock) of per product.` : ''}${r.generatedSkus ? `<br>${r.generatedSkus} variatie(s) hebben in WooCommerce geen eigen SKU; die hebben hier een eigen SKU gekregen (bijv. met de kleur erin), zodat elke variatie apart geteld wordt.` : ''}${r.repaired?.length ? `<br><b>Hersteld:</b> deze producten bevatten eerder meerdere variaties tegelijk en staan nu op <i>Nog niet geteld</i>: ${r.repaired.map(esc).join(', ')}. Lees daarna de verkoophistorie opnieuw in.` : ''}`;
       });
     } else if (button.dataset.import === 'packs-suggest') {
       runImport(button, async () => {

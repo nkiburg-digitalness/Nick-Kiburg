@@ -132,22 +132,86 @@ export async function linkBolOffers(inventory, bol, { createMissing = false, use
   return result;
 }
 
+function skuPart(value) {
+  return String(value).normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/gi, '-')
+    .replace(/^-+|-+$/g, '').toUpperCase().slice(0, 40);
+}
+
+/**
+ * WooCommerce reports the parent's SKU for a variation without its own SKU, so the
+ * variations "Wit", "Zwart" and "Grijs" can all arrive with the same SKU. Every
+ * webshop item must become its own product: items whose SKU is empty or shared get
+ * a readable SKU of their own, e.g. "TS-100-ZWART-2-STUKS".
+ */
+function assignUniqueSkus(items) {
+  const count = new Map();
+  for (const p of items) if (p.sku) count.set(p.sku, (count.get(p.sku) ?? 0) + 1);
+  const used = new Set([...count.keys()].filter((s) => count.get(s) === 1));
+  for (const p of items) {
+    p.originalSku = p.sku || '';
+    if (p.sku && count.get(p.sku) === 1) continue;
+    const base = p.parent_sku || p.sku || `WOO-${p.woo_product_id}`;
+    const options = skuPart((p.options ?? []).join(' '));
+    let sku = p.woo_variation_id ? `${base}-${options || p.woo_variation_id}` : base;
+    if (used.has(sku)) sku = `${sku}-${p.woo_variation_id ?? p.woo_product_id}`;
+    used.add(sku);
+    p.sku = sku;
+    p.generatedSku = true;
+  }
+}
+
+function linkedProduct(inventory, p) {
+  return p.woo_variation_id
+    ? inventory.db.prepare('SELECT * FROM products WHERE woo_product_id = ? AND woo_variation_id = ?').get(p.woo_product_id, p.woo_variation_id) ?? null
+    : inventory.db.prepare('SELECT * FROM products WHERE woo_product_id = ? AND woo_variation_id IS NULL').get(p.woo_product_id) ?? null;
+}
+
+/**
+ * Products created by an earlier import that took several variations together under
+ * one shared SKU are split off: the product becomes the variation it is linked to.
+ */
+function repairMergedVariations(inventory, items, { userName }) {
+  const repaired = [];
+  const shared = new Map();
+  for (const p of items) {
+    if (p.generatedSku && p.originalSku && p.woo_variation_id) {
+      if (!shared.has(p.originalSku)) shared.set(p.originalSku, []);
+      shared.get(p.originalSku).push(p);
+    }
+  }
+  for (const [sku, group] of shared) {
+    const product = inventory.getProduct(sku);
+    if (!product || !group.some((p) => p.woo_product_id === product.woo_product_id)) continue;
+    const target = group.find((p) => p.woo_variation_id === product.woo_variation_id) ?? group[0];
+    try {
+      inventory.repairMergedProduct(sku, { sku: target.sku, name: target.name }, { userName });
+      repaired.push(target.name);
+    } catch {
+      // The new SKU is already in use: leave it as it is.
+    }
+  }
+  return repaired;
+}
+
 /**
  * Take over all webshop products (incl. variations) and link them by SKU. New products
  * start with the current webshop stock; existing products keep their stock.
  */
 export async function importFromWooCommerce(inventory, woo, { userName = null } = {}) {
-  const result = { created: 0, updated: 0, skipped: [], uncounted: 0, listings: 0 };
-  for (const p of await woo.listProducts()) {
+  const result = { created: 0, updated: 0, skipped: [], uncounted: 0, listings: 0, generatedSkus: 0, repaired: [] };
+  const items = await woo.listProducts();
+  assignUniqueSkus(items);
+  result.repaired = repairMergedVariations(inventory, items, { userName });
+  for (const p of items) {
     // Already set up as a sales listing (e.g. "2 stuks" or a package): not a stock item.
     if (inventory.findListing({ wooProductId: p.woo_product_id, wooVariationId: p.woo_variation_id || undefined })) {
       result.listings++;
       continue;
     }
-    if (!p.sku) {
-      result.skipped.push(`${p.name} (#${p.woo_product_id}): geen SKU in de webshop`);
-      continue;
-    }
+    if (p.generatedSku) result.generatedSkus++;
+    // A product already linked to this exact webshop product/variation keeps its own SKU.
+    const linked = linkedProduct(inventory, p);
+    if (linked) p.sku = linked.sku;
     const exists = inventory.getProduct(p.sku);
     // Take over the EAN from the webshop (needed to recognise Bol.com orders), unless one
     // was already filled in here or another product already uses it.

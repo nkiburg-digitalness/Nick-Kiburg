@@ -253,3 +253,47 @@ test('WooCommerce import: products without "manage stock" get unknown stock', as
   assert.equal(inventory.getProduct('A').stock_confirmed, 1);
   assert.equal(inventory.getProduct('B').stock_confirmed, 0);
 });
+
+test('WooCommerce import: variations without their own SKU each become a product', async () => {
+  const { importFromWooCommerce } = await import('../src/importer.js');
+  const { db, inventory } = setup();
+  // State left by an earlier import: three colour variations reported the parent SKU
+  // "TS" and ended up as one product, with order history from all three.
+  inventory.upsertProduct({ sku: 'TS', name: 'Tochtstrip – Wit', woo_product_id: 10, woo_variation_id: 103, stock: 0, stock_confirmed: false });
+  inventory.recordSale({ channel: 'woocommerce', lineRef: 'woocommerce:order-item:1', sku: 'TS', quantity: 2, applyToStock: false });
+
+  const variation = (id, options, sku, parent = 'TS', pid = 10) => ({
+    woo_product_id: pid, woo_variation_id: id, sku, parent_sku: parent, options,
+    name: `${pid === 10 ? 'Tochtstrip' : 'Tochtband'} – ${options.join(', ')}`, stock: null,
+  });
+  const woo = { listProducts: async () => [
+    variation(101, ['Wit'], 'TS'),
+    variation(102, ['Zwart'], 'TS'),
+    variation(103, ['Grijs'], 'TS'),
+    variation(201, ['Zwart', '5 m'], '', '', 20),
+    variation(202, ['Zwart', '10 m'], '', '', 20),
+    variation(301, ['Grijs'], 'ROL-GRIJS', 'ROL', 30),
+  ] };
+  const result = await importFromWooCommerce(inventory, woo);
+
+  assert.equal(inventory.getProduct('TS'), null, 'the merged product is split off');
+  assert.deepEqual(result.repaired, ['Tochtstrip – Grijs']);
+  const grijs = inventory.getProduct('TS-GRIJS');
+  assert.equal(grijs.woo_variation_id, 103);
+  assert.equal(grijs.name, 'Tochtstrip – Grijs');
+  assert.equal(grijs.stock_confirmed, 0);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM stock_movements WHERE type = 'sale'").get().n, 0, 'history is dropped so it can be read in again');
+  assert.equal(inventory.getProduct('TS-WIT').woo_variation_id, 101);
+  assert.equal(inventory.getProduct('TS-ZWART').woo_variation_id, 102);
+  assert.equal(inventory.getProduct('WOO-20-ZWART-5-M').woo_variation_id, 201);
+  assert.equal(inventory.getProduct('WOO-20-ZWART-10-M').woo_variation_id, 202);
+  assert.equal(inventory.getProduct('ROL-GRIJS').woo_variation_id, 301, 'own SKUs are kept');
+  assert.equal(result.generatedSkus, 5);
+  assert.equal(result.skipped.length, 0);
+
+  // A second import changes nothing, and an order line with the parent SKU is booked
+  // on the right colour (by variation id).
+  const again = await importFromWooCommerce(inventory, woo);
+  assert.deepEqual([again.created, again.updated, again.repaired.length], [0, 6, 0]);
+  assert.equal(inventory.findProduct({ sku: 'TS', wooProductId: 10, wooVariationId: 102 }).sku, 'TS-ZWART');
+});

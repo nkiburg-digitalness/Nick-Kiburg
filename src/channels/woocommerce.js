@@ -164,12 +164,21 @@ export class WooCommerceChannel {
       const { data, headers } = await this.#api(`/products?per_page=100&page=${page}`);
       for (const p of data ?? []) {
         if (p.type === 'variable') {
-          const { data: variations } = await this.#api(`/products/${p.id}/variations?per_page=100`);
-          for (const v of variations ?? []) {
-            result.push({ woo_product_id: p.id, woo_variation_id: v.id, sku: v.sku, name: `${p.name} – ${(v.attributes ?? []).map((a) => a.option).join(', ')}`, stock: v.manage_stock === true ? v.stock_quantity : null, ean: eanOf(v) });
+          for (let vpage = 1; vpage <= 20; vpage++) {
+            const { data: variations, headers: vheaders } = await this.#api(`/products/${p.id}/variations?per_page=100&page=${vpage}`);
+            for (const v of variations ?? []) {
+              const options = (v.attributes ?? []).map((a) => a.option).filter(Boolean);
+              // Note: a variation without its own SKU reports the SKU of its parent product.
+              result.push({
+                woo_product_id: p.id, woo_variation_id: v.id, sku: v.sku, parent_sku: p.sku || '', options,
+                name: `${p.name} – ${options.join(', ')}`, stock: v.manage_stock === true ? v.stock_quantity : null, ean: eanOf(v),
+              });
+            }
+            const vpages = Number.parseInt(vheaders.get('x-wp-totalpages') ?? '1', 10);
+            if (vpage >= vpages || !variations?.length) break;
           }
         } else {
-          result.push({ woo_product_id: p.id, woo_variation_id: null, sku: p.sku, name: p.name, stock: p.manage_stock ? p.stock_quantity : null, ean: eanOf(p) });
+          result.push({ woo_product_id: p.id, woo_variation_id: null, sku: p.sku, parent_sku: '', options: [], name: p.name, stock: p.manage_stock ? p.stock_quantity : null, ean: eanOf(p) });
         }
       }
       const totalPages = Number.parseInt(headers.get('x-wp-totalpages') ?? '1', 10);

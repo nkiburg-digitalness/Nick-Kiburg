@@ -127,6 +127,23 @@ export class Inventory {
     return product;
   }
 
+  /**
+   * Split off a product that wrongly took several webshop variations together (they
+   * shared one SKU): give it its own SKU and name, mark the stock as "not counted
+   * yet" and drop its imported order history so it can be read in again per variation.
+   */
+  repairMergedProduct(oldSku, { sku, name }, { userName = null } = {}) {
+    if (this.getProduct(sku)) throw new ValidationError(`SKU ${sku} bestaat al`);
+    transaction(this.db, () => {
+      this.db.prepare(`UPDATE products SET sku = ?, name = ?, stock_confirmed = 0, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE sku = ?`)
+        .run(sku, name, oldSku);
+      this.db.prepare(`DELETE FROM stock_movements WHERE sku = ? AND channel = 'woocommerce' AND type IN ('sale', 'sale_reversal') AND applied = 0`).run(sku);
+    });
+    this.bus.log('warn', `Product ${oldSku} bevatte meerdere webshopvariaties; nu ${sku} "${name}" – voorraad opnieuw tellen${by(userName)}`, { sku });
+    this.bus.publish('product_deleted', { sku: oldSku });
+    this.bus.publish('product', this.getProduct(sku));
+  }
+
   deleteProduct(sku, { userName = null } = {}) {
     const { changes } = this.db.prepare('DELETE FROM products WHERE sku = ?').run(sku);
     if (changes) this.bus.log('info', `Product ${sku} verwijderd${by(userName)}`, { sku });

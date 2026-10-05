@@ -1176,7 +1176,7 @@ function showWebhookInfo(shop, intro = '') {
   const url = `${location.origin}${shop.webhook_path}`;
   const box = $('#shop-result');
   box.innerHTML = `${intro}<b>Webhooks voor ${esc(shop.name)}</b> – maak in WooCommerce (Instellingen → Geavanceerd → Webhooks) twee webhooks aan:
-    <i>Order aangemaakt</i> en <i>Order bijgewerkt</i>, status Actief, API-versie v3, met:
+    <i>Bestelling toegevoegd</i> en <i>Bestelling bijgewerkt</i> (Engels: Order created / Order updated), status Actief, API-versie v3, met:
     <div class="copy-row"><span class="muted small" style="width:90px">Aflever-URL</span><code>${esc(url)}</code><button data-copy="${esc(url)}">Kopiëren</button></div>
     <div class="copy-row"><span class="muted small" style="width:90px">Geheim</span><code>${esc(shop.webhook_secret)}</code><button data-copy="${esc(shop.webhook_secret)}">Kopiëren</button></div>`;
   box.hidden = false;

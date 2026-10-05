@@ -147,7 +147,7 @@ In het dashboard: menu rechtsboven → **Webshops beheren** → **+ Webshop toev
 1. **Naam, webadres en kleur.**
 2. **WooCommerce-sleutels:** WooCommerce → **Instellingen → Geavanceerd → REST API** → sleutel toevoegen met rechten **Lezen/Schrijven**.
 3. **Bol.com-sleutels (optioneel):** Partnerplatform → **Instellingen → API-instellingen** → Retailer API → credentials aanmaken. Producten worden aan Bol-orders gekoppeld via de **EAN**; het Bol **offer-ID** wordt bij de eerste Bol-order automatisch opgehaald (of vul het zelf in bij het product).
-4. **Webhooks:** na het opslaan toont het dashboard per webshop een eigen Aflever-URL (`https://<uw-server>/webhooks/woocommerce/<webshop>`) en een eigen geheim. Maak daarmee in WooCommerce → **Instellingen → Geavanceerd → Webhooks** twee webhooks aan: **Order aangemaakt** en **Order bijgewerkt** (API-versie v3).
+4. **Webhooks:** na het opslaan toont het dashboard per webshop een eigen Aflever-URL (`https://<uw-server>/webhooks/woocommerce/<webshop>`) en een eigen geheim. Maak daarmee in WooCommerce → **Instellingen → Geavanceerd → Webhooks** twee webhooks aan: **Bestelling toegevoegd** en **Bestelling bijgewerkt** (in het Engels: Order created / Order updated; API-versie v3).
 5. **Verbinding testen** controleert direct of de sleutels werken.
 
 De sleutels worden versleuteld opgeslagen met `SECRET_KEY` en nooit meer teruggestuurd naar de browser. Zorg dat bij elk product in WooCommerce de **SKU** is ingevuld; "Voorraad beheren" wordt bij de eerste synchronisatie automatisch aangezet.

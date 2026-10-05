@@ -73,12 +73,12 @@ In het dashboard: menu rechtsboven → **Webshops beheren** → **+ Webshop toev
 
    | | Webhook 1 | Webhook 2 |
    |---|---|---|
-   | Naam | Voorraad – order aangemaakt | Voorraad – order bijgewerkt |
+   | Naam | Voorraad – bestelling toegevoegd | Voorraad – bestelling bijgewerkt |
    | Status | Actief | Actief |
-   | Onderwerp | Order aangemaakt | Order bijgewerkt |
+   | Onderwerp | Bestelling toegevoegd (Order created) | Bestelling bijgewerkt (Order updated) |
    | Aflever-URL | de Aflever-URL uit het dashboard (eindigt op `/webhooks/woocommerce/<webshop>`) | idem |
    | Geheim | het Geheim uit het dashboard | idem |
-   | API-versie | WP REST API Integration v3 | idem |
+   | API-versie | WP REST API-integratie v3 | idem |
 
    De webhook-gegevens kunt u altijd terugvinden via **Webshops beheren → Webhook-gegevens**.
 6. Klik op **Verbinding testen**. U ziet direct of WooCommerce (en Bol.com) de sleutels accepteert.

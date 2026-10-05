@@ -1074,12 +1074,34 @@ function bindUserMenu() {
     } else if (button.dataset.import === 'bol-offers') {
       runImport(button, async () => {
         showImport('Bezig met ophalen bij Bol.com… dit kan een paar minuten duren.');
-        const r = await api(`${shopBase(importShop())}/import/bol-offers`, { method: 'POST', body: { createMissing: $('#bol-create-missing').checked } });
+        const r = await api(`${shopBase(importShop())}/import/bol-offers`, { method: 'POST' });
         const missing = r.unmatched.length
           ? `<br><b>${r.unmatched.length} aanbieding(en) zonder product in deze webshop</b> (alleen op Bol.com, of EAN ontbreekt/wijkt af):<br>${r.unmatched.slice(0, 25).map((o) => `EAN ${esc(o.ean ?? '–')}${o.reference ? ` · referentie ${esc(o.reference)}` : ''}${o.stock !== null ? ` · voorraad Bol ${o.stock}` : ''}`).join('<br>')}${r.unmatched.length > 25 ? '<br>…' : ''}
-            <br>Vul de EAN in bij het juiste product (Excel-lijst), of koppel opnieuw met "Producten die alleen op Bol.com staan ook toevoegen".`
+            <br>Die worden niet toegevoegd. Staat het product wél in de webshop? Vul dan de EAN in bij het juiste product (Excel-lijst) of via het product → <i>Verkoopartikel toevoegen</i>, en koppel opnieuw.`
           : '';
-        return `Bol.com: ${r.offers} aanbiedingen gevonden. ${r.linked} nieuw gekoppeld, ${r.alreadyLinked} waren al gekoppeld${r.created ? `, ${r.created} producten toegevoegd` : ''}${r.fbb ? `, ${r.fbb} FBB-aanbieding(en) overgeslagen` : ''}.${missing}`;
+        return `Bol.com: ${r.offers} aanbiedingen gevonden. ${r.linked} nieuw gekoppeld, ${r.alreadyLinked} waren al gekoppeld${r.fbb ? `, ${r.fbb} FBB-aanbieding(en) overgeslagen` : ''}.${missing}`;
+      });
+    } else if (button.dataset.import === 'unlinked-list') {
+      runImport(button, async () => {
+        const items = await api(`${shopBase(importShop())}/unlinked`);
+        const box = $('#unlinked-box');
+        box.hidden = !items.length;
+        if (!items.length) {
+          box.innerHTML = '';
+          return 'Alle producten staan in de webshop. Er is niets op te ruimen.';
+        }
+        box.innerHTML = `<div class="pack-group">${items.map((p) => `<label style="font-weight:400"><input type="checkbox" value="${esc(p.sku)}" ${p.fromBol ? 'checked' : ''}> ${esc(p.name)} <span class="muted small">${esc(p.sku)}${p.ean ? ` · EAN ${esc(p.ean)}` : ''}${p.fromBol ? ' · vanuit Bol.com toegevoegd' : ''}</span></label>`).join('')}</div>
+          <div class="actions" style="justify-content:flex-start"><button class="danger" data-import="unlinked-delete">Aangevinkte verwijderen</button></div>`;
+        const fromBol = items.filter((p) => p.fromBol).length;
+        return `${items.length} product(en) zonder webshopkoppeling gevonden${fromBol ? `, waarvan ${fromBol} vanuit Bol.com toegevoegd (alvast aangevinkt)` : ''}. Controleer de lijst en klik op <i>Aangevinkte verwijderen</i>.`;
+      });
+    } else if (button.dataset.import === 'unlinked-delete') {
+      const skus = $$('#unlinked-box input[type=checkbox]:checked').map((i) => i.value);
+      if (!skus.length || !confirm(`${skus.length} product(en) verwijderen uit het dashboard? De webshop en Bol.com worden niet aangepast.`)) return;
+      runImport(button, async () => {
+        const r = await api(`${shopBase(importShop())}/unlinked/delete`, { method: 'POST', body: { skus } });
+        $('#unlinked-box').hidden = true;
+        return `${r.deleted} product(en) verwijderd.`;
       });
     } else if (button.dataset.import === 'backfill') {
       runImport(button, async () => {

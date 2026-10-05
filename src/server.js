@@ -283,6 +283,20 @@ export function createHttpServer(app) {
       send(res, 200, result);
     }, { shop: true }],
 
+    // Products that are not in the webshop (e.g. added from Bol.com earlier), for cleaning up.
+    ['GET', new RegExp(`^${SHOP}/unlinked$`), 'beheerder', ({ res, rt }) => send(res, 200, rt.inventory.unlinkedProducts()), { shop: true }],
+    ['POST', new RegExp(`^${SHOP}/unlinked/delete$`), 'beheerder', async ({ req, res, user, rt }) => {
+      const { skus } = await readJson(req);
+      const allowed = new Set(rt.inventory.unlinkedProducts().map((p) => p.sku));
+      let deleted = 0;
+      for (const s of Array.isArray(skus) ? skus : []) {
+        if (!allowed.has(s)) continue;
+        rt.inventory.deleteProduct(s, { userName: user.name });
+        deleted++;
+      }
+      send(res, 200, { deleted });
+    }, { shop: true }],
+
     // --- import / export (per webshop)
     ['GET', new RegExp(`^${SHOP}/export/products\\.csv$`), 'kijker', ({ res, rt }) => {
       send(res, 200, productsToCsv(rt.inventory.listProducts()), {
@@ -308,9 +322,8 @@ export function createHttpServer(app) {
       if (typeof rt.channels.bol?.exportOffers !== 'function') {
         throw new AuthError('Bol.com is voor deze webshop niet gekoppeld: vul de sleutels in via Webshops beheren', 400);
       }
-      const { createMissing } = await readJson(req);
-      const result = await linkBolOffers(rt.inventory, rt.channels.bol, { createMissing: Boolean(createMissing), userName: user.name });
-      rt.bus.log('info', `Bol.com-aanbiedingen gekoppeld door ${user.name}: ${result.linked} nieuw gekoppeld, ${result.alreadyLinked} al gekoppeld, ${result.created} toegevoegd, ${result.unmatched.length} zonder product`, { channel: 'bol' });
+      const result = await linkBolOffers(rt.inventory, rt.channels.bol, { userName: user.name });
+      rt.bus.log('info', `Bol.com-aanbiedingen gekoppeld door ${user.name}: ${result.linked} nieuw gekoppeld, ${result.alreadyLinked} al gekoppeld, ${result.unmatched.length} zonder product in de webshop`, { channel: 'bol' });
       send(res, 200, result);
     }, { shop: true }],
     ['POST', new RegExp(`^${SHOP}/backfill$`), 'beheerder', async ({ req, res, user, rt }) => {

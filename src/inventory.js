@@ -144,6 +144,19 @@ export class Inventory {
     this.bus.publish('product', this.getProduct(sku));
   }
 
+  /**
+   * Products without a webshop link that are not part of a sales listing either –
+   * e.g. products added from Bol.com earlier. `fromBol` marks the ones that were
+   * created automatically from a Bol.com offer.
+   */
+  unlinkedProducts() {
+    return this.db.prepare(`
+      SELECT sku, name, ean, stock, bol_offer_id, name LIKE 'Bol.com-product %' AS fromBol FROM products p
+      WHERE woo_product_id IS NULL AND NOT EXISTS (SELECT 1 FROM listing_components c WHERE c.item_sku = p.sku)
+      ORDER BY fromBol DESC, name COLLATE NOCASE
+    `).all().map((p) => ({ ...p, fromBol: Boolean(p.fromBol) }));
+  }
+
   deleteProduct(sku, { userName = null } = {}) {
     const { changes } = this.db.prepare('DELETE FROM products WHERE sku = ?').run(sku);
     if (changes) this.bus.log('info', `Product ${sku} verwijderd${by(userName)}`, { sku });

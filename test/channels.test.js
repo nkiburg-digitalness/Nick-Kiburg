@@ -212,10 +212,22 @@ test('Bol: offer export links offers to products by EAN or reference, skipping F
   // Newly linked products are queued to receive the central stock on Bol.com.
   assert.ok(db.prepare("SELECT 1 FROM sync_queue WHERE sku = 'TS-1' AND channel = 'bol'").get());
 
+  // Offers that are not in the webshop are never added as products.
   const again = await linkBolOffers(inventory, bol, { createMissing: true });
-  assert.equal(again.created, 1);
-  assert.equal(inventory.getProduct('ALLEEN-BOL').stock, 6);
-  assert.equal(inventory.getProduct('ALLEEN-BOL').bol_offer_id, 'o5');
+  assert.equal(again.unmatched.length, 1);
+  assert.equal(inventory.getProduct('ALLEEN-BOL'), null);
+  assert.equal(inventory.listProducts().length, 3);
+});
+
+test('Products not in the webshop can be listed for clean-up', () => {
+  const { inventory } = setup();
+  inventory.upsertProduct({ sku: 'WEB', name: 'Uit webshop', woo_product_id: 1, stock: 1 });
+  inventory.upsertProduct({ sku: 'BOL-871', name: 'Bol.com-product 871', bol_offer_id: 'o9', stock: 4 });
+  inventory.upsertProduct({ sku: 'EIGEN', name: 'Zelf aangemaakt', stock: 2 });
+  inventory.upsertProduct({ sku: 'BAND-M', name: 'Tochtband (meter)', unit: 'meter', stock: 50 });
+  inventory.saveListing({ name: 'Tochtband 10 m', woo_product_id: 2, woo_variation_id: 3, components: [{ item_sku: 'BAND-M', quantity: 10 }] });
+  const list = inventory.unlinkedProducts();
+  assert.deepEqual(list.map((p) => [p.sku, p.fromBol]), [['BOL-871', true], ['EIGEN', false]], 'webshop products and stock items of listings are left out');
 });
 
 test('Safety: unknown stock is never pushed, and a paused webshop pushes nothing', async () => {

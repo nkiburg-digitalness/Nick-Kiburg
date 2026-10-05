@@ -12,9 +12,11 @@ Met deze route heeft u geen eigen server of hulp van een hostingpartij nodig. [R
   | Server *Starter* (512 MB, 0,5 CPU, altijd aan) | $7 | 1 (ruim voldoende voor 4 webshops) | $7,00 |
   | Opslag (persistent disk) | $0,25 per GB | 1 GB (databases van alle webshops + 14 dagelijkse back-ups) | $0,25 |
   | Dataverkeer | 5 GB inbegrepen, daarna $0,15/GB | ± 1–1,5 GB voor 4 webshops (alles wordt gecomprimeerd) | $0 |
-  | Eigen webadres | 25 inbegrepen | 1 (bijv. voorraad.tochtstripdeur.nl) | $0 |
+  | Eigen webadres (custom domain) | 2 inbegrepen, daarna $0,25 per stuk | 1 (bijv. voorraad.tochtstripdeur.nl) | $0 |
   | Build-minuten (installeren van updates) | 500 inbegrepen | enkele minuten per update | $0 |
   | Task runs / Workflows, databases, cron jobs | per gebruik | niet gebruikt | $0 |
+
+  Let op het verschil: het **workspace-plan** (Hobby, Pro, Scale – onder *Billing → Change plan*) is uw account; laat dat op **Hobby**. **Starter** is het *server-type* (instance type) en wordt automatisch gekozen door het bestand `render.yaml` wanneer u installeert via **New → Blueprint** (stap 1). U ziet het terug in het overzicht vóór u op *Apply* klikt.
 
   Render rekent per seconde af. Kies **niet** de gratis *Free*-server: die valt na 15 minuten zonder bezoek in slaap en haalt dan geen Bol.com-orders meer op.
 - **Locatie:** Frankfurt (EU). Er worden geen klantgegevens opgeslagen: alleen ordernummers, artikelnummers en aantallen, plus de namen en e-mailadressen van uw collega's.

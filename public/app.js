@@ -1122,7 +1122,7 @@ function bindUserMenu() {
         shop: bolUnmatched.shop,
         prefill: { name: o.title || `Bol.com ${o.ean}`, ean: o.ean, bol_offer_id: o.offerId },
         components: [{ item_sku: '', quantity: o.packSize ?? 1 }],
-        onSaved: () => { row.classList.add('done'); bolLink.replaceWith(Object.assign(document.createElement('span'), { className: 'muted small', textContent: '✓ gekoppeld' })); },
+        onSaved: () => { row.classList.add('done'); bolLink.closest('.actions').replaceWith(Object.assign(document.createElement('span'), { className: 'muted small', textContent: listingCtx.linkedTo ? `✓ gekoppeld aan ${listingCtx.linkedTo}` : '✓ gekoppeld' })); },
       });
     }
     const button = e.target.closest('[data-import]');
@@ -1369,6 +1369,7 @@ async function openListing({ shop, listing = null, components = null, replacePro
   $('#listing-title').textContent = listing ? `${listing.name} bewerken` : replaceProduct ? `${replaceProduct.name} omzetten` : prefill ? 'Bol.com-aanbieding koppelen' : 'Verkoopartikel toevoegen';
   $$('[data-bol-only]', form).forEach((el) => { el.hidden = !info?.hasBol; });
   $('#listing-delete').hidden = !listing;
+  $('#listing-bol-hint').hidden = !prefill;
   const replaceBox = $('#listing-replace');
   replaceBox.hidden = !replaceProduct;
   if (replaceProduct) {
@@ -1443,7 +1444,11 @@ function bindListings() {
     try {
       const base = `${shopBase(listingCtx.shop)}/listings`;
       if (listingCtx.id) await api(`${base}/${listingCtx.id}`, { method: 'PATCH', body });
-      else await api(base, { method: 'POST', body });
+      else {
+        const saved = await api(base, { method: 'POST', body });
+        // A Bol offer that is exactly a webshop product was linked to that product itself.
+        if (saved.linkedProduct) listingCtx.linkedTo = saved.linkedProduct.name;
+      }
       dialog.close();
       listingCtx.onSaved?.();
       if (listingCtx.replace) detail.close();

@@ -420,3 +420,29 @@ test('an interrupted history import resumes after a restart', async () => {
     close();
   }
 });
+
+test('a Bol.com offer that is exactly a webshop variation is linked to that product, not made a listing', async () => {
+  const { app, loggedIn, close } = await start();
+  try {
+    const request = await loggedIn();
+    const inv = app.shops.get('shop-a').inventory;
+    inv.upsertProduct({ sku: 'KM-ROZE-L', name: 'Koelmat - Roze – L - 70 x 55 cm', woo_product_id: 1933, woo_variation_id: 1935, stock: 6 });
+    const body = {
+      name: 'Koelmat Hond & Kat | Roze L | 70x55 cm', ean: '6151043314365', bol_offer_id: 'a49cd656', woo_product_id: '1933', woo_variation_id: '1935',
+      components: [{ item_sku: 'KM-ROZE-L', quantity: 1 }],
+    };
+    const res = await request('/api/shops/shop-a/listings', { method: 'POST', body });
+    assert.equal(res.status, 200, JSON.stringify(res.data));
+    assert.deepEqual(res.data.linkedProduct, { sku: 'KM-ROZE-L', name: 'Koelmat - Roze – L - 70 x 55 cm' });
+    const p = inv.getProduct('KM-ROZE-L');
+    assert.deepEqual([p.ean, p.bol_offer_id], ['6151043314365', 'a49cd656']);
+    assert.equal(inv.listListings().length, 0, 'no listing created');
+
+    // A set of 4 on the same webshop variation: a clear explanation instead.
+    const set = await request('/api/shops/shop-a/listings', { method: 'POST', body: { ...body, ean: '6151043314999', bol_offer_id: 'other', components: [{ item_sku: 'KM-ROZE-L', quantity: 4 }] } });
+    assert.equal(set.status, 400);
+    assert.match(set.data.error, /Bol-set koppelt u niet aan de webshopvariatie/);
+  } finally {
+    close();
+  }
+});

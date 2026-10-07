@@ -159,3 +159,11 @@ test('Bol.com title → suggested webshop product (colour and size must match)',
   assert.equal(title('Koelmat Hond & Kat | Antraciet XL | 100x70 cm'), null, 'no colour match: no suggestion');
   assert.equal(title(null), null);
 });
+
+test('Bol.com title "70x55" matches webshop variation "70 x 55 cm"', async () => {
+  const { bestMatch } = await import('../src/importer.js');
+  const products = ['Koelmat - Roze – L - 70 x 55 cm', 'Koelmat - Roze – XL - 100 x 70 cm', 'Koelmat - Blauw – L - 70 x 55 cm', 'Koelmat - Roze – M - 60 x 50 cm']
+    .map((name, i) => ({ sku: `K${i}`, name }));
+  assert.equal(bestMatch('Koelmat Hond & Kat | Roze L | 70x55 cm | Verkoelingsmat Zonder Giftige Gel | Anti-Slip | Wasbaar', products)?.name, 'Koelmat - Roze – L - 70 x 55 cm');
+  assert.equal(bestMatch('Koelmat Hond & Kat | Roze XL | 100x70 cm | Verkoelingsmat', products)?.name, 'Koelmat - Roze – XL - 100 x 70 cm');
+});

@@ -112,6 +112,43 @@ function forbidden() {
   return new AuthError('Hiervoor heeft u geen rechten', 403);
 }
 
+/**
+ * A Bol.com offer that is exactly a webshop product/variation (same item, 1 piece): no
+ * sales listing is needed, the offer belongs on that stock item itself. Returns it.
+ */
+function directBolLink(inventory, body) {
+  const ean = String(body.ean ?? '').trim();
+  const offerId = String(body.bol_offer_id ?? '').trim();
+  const pid = Number.parseInt(body.woo_product_id, 10);
+  if (body.replace_product || (!ean && !offerId) || !pid) return null;
+  const vid = Number.parseInt(body.woo_variation_id, 10) || null;
+  const product = vid
+    ? inventory.db.prepare('SELECT * FROM products WHERE woo_product_id = ? AND woo_variation_id = ?').get(pid, vid)
+    : inventory.db.prepare('SELECT * FROM products WHERE woo_product_id = ? AND woo_variation_id IS NULL').get(pid);
+  const parts = (body.components ?? []).filter((c) => c?.item_sku);
+  if (!product || parts.length !== 1 || parts[0].item_sku !== product.sku || Number(parts[0].quantity) !== 1) return null;
+  return product;
+}
+
+function linkBolToProduct(inventory, product, body, userName) {
+  const ean = String(body.ean ?? '').trim();
+  const offerId = String(body.bol_offer_id ?? '').trim();
+  const fields = { sku: product.sku };
+  if (ean && !product.ean) {
+    const owner = inventory.findProduct({ ean });
+    if (owner && owner.sku !== product.sku) throw new AuthError(`EAN ${ean} wordt al gebruikt door ${owner.name} (${owner.sku})`, 400);
+    fields.ean = ean;
+  }
+  if (offerId) {
+    const other = inventory.findProduct({ bolOfferId: offerId });
+    if (other && other.sku !== product.sku) throw new AuthError(`Deze Bol.com-aanbieding is al gekoppeld aan ${other.name} (${other.sku})`, 400);
+    fields.bol_offer_id = offerId;
+  }
+  const saved = inventory.upsertProduct(fields, { userName });
+  inventory.bus.log('info', `Bol.com-aanbieding${offerId ? ` ${offerId}` : ''}${ean ? ` (EAN ${ean})` : ''} direct gekoppeld aan ${saved.name}${userName ? ` (door ${userName})` : ''}`, { channel: 'bol', sku: saved.sku });
+  return { sku: saved.sku, name: saved.name };
+}
+
 export function createHttpServer(app) {
   const { config, auth, shops, hub, coreBus } = app;
 
@@ -269,6 +306,8 @@ export function createHttpServer(app) {
     }, { shop: true }],
     ['POST', new RegExp(`^${SHOP}/listings$`), 'beheerder', async ({ req, res, user, rt }) => {
       const body = await readJson(req);
+      const direct = directBolLink(rt.inventory, body);
+      if (direct) return send(res, 200, { linkedProduct: linkBolToProduct(rt.inventory, direct, body, user.name) });
       send(res, 200, rt.inventory.saveListing({ ...body, id: undefined }, { userName: user.name }));
     }, { shop: true }],
     ['PATCH', new RegExp(`^${SHOP}/listings/(\\d+)$`), 'beheerder', async ({ req, res, m, user, rt }) => {

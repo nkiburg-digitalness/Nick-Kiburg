@@ -441,6 +441,9 @@ export class Inventory {
     if (fields.woo_product_id) {
       const clash = this.db.prepare(`SELECT sku FROM products WHERE woo_product_id = ? AND woo_variation_id IS ? AND sku IS NOT ?`)
         .get(fields.woo_product_id, fields.woo_variation_id, replace);
+      if (clash && (fields.ean || fields.bol_offer_id)) {
+        throw new ValidationError("Een Bol-set koppelt u niet aan de webshopvariatie: laat 'Product of variatie in de webshop' leeg en kies alleen het voorraadartikel en het aantal.");
+      }
       if (clash) throw new ValidationError(`Dit webshopproduct is al gekoppeld aan voorraadartikel ${clash.sku}. Zet dat product om naar een verkoopartikel.`);
       const other = this.db.prepare('SELECT name FROM listings WHERE woo_product_id = ? AND woo_variation_id IS ? AND id IS NOT ?')
         .get(fields.woo_product_id, fields.woo_variation_id, id);

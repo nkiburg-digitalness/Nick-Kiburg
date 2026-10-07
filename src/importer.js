@@ -96,8 +96,10 @@ export function packSizeFromTitle(title) {
   return n && n > 1 ? n : null;
 }
 
-const STOP_WORDS = new Set(['de', 'het', 'een', 'en', 'van', 'voor', 'met', 'zonder', 'in', 'op', 'cm', 'stuk', 'stuks', 'the', 'and', 'for']);
+const STOP_WORDS = new Set(['de', 'het', 'een', 'en', 'van', 'voor', 'met', 'zonder', 'in', 'op', 'cm', 'x', 'stuk', 'stuks', 'the', 'and', 'for']);
+// "70x55" and "70 x 55" give the same words: numbers and letters are split apart.
 const tokens = (text) => new Set(String(text ?? '').toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+  .replace(/(\d)([a-z])/g, '$1 $2').replace(/([a-z])(\d)/g, '$1 $2')
   .split(/[^a-z0-9]+/).filter((t) => t && !STOP_WORDS.has(t)));
 
 /**

@@ -37,11 +37,26 @@ function normalizeUrl(url) {
 }
 
 /**
+ * Name of the webshop (among `peers`) that sells this Bol.com offer / EAN, if any.
+ * Used when several webshops share one Bol.com account: an order or offer of the
+ * other webshop is not "unknown", and an offer is never linked to two webshops.
+ */
+function ownerAmong(peers, { offerId, ean } = {}) {
+  for (const rt of peers) {
+    const inv = rt.inventory;
+    const hit = (offerId && (inv.findListing({ bolOfferId: offerId }) || inv.findProduct({ bolOfferId: offerId })))
+      || (ean && (inv.findListing({ ean }) || inv.findProduct({ ean })));
+    if (hit) return rt.shop.name;
+  }
+  return null;
+}
+
+/**
  * Everything one webshop needs at runtime: its own database, activity log, stock
  * ledger, channels (WooCommerce + optional Bol.com), pollers, sync worker and
  * backups. Webshops share nothing, so they can never get in each other's way.
  */
-export function createShopRuntime({ shop, config, hub, fetchImpl = fetch, dbFile }) {
+export function createShopRuntime({ shop, config, hub, fetchImpl = fetch, dbFile, bolPeers = () => [] }) {
   const db = openDb(dbFile);
   const bus = new EventBus(db, { shopId: shop.id, hub });
 
@@ -79,6 +94,7 @@ export function createShopRuntime({ shop, config, hub, fetchImpl = fetch, dbFile
           fulfilmentMethod: shop.bol_fulfilment_method || 'FBR',
         },
         db, bus, fetchImpl,
+        knownElsewhere: (ids) => ownerAmong(bolPeers(), ids),
       }));
     }
   }
@@ -111,6 +127,8 @@ export function createShopRuntime({ shop, config, hub, fetchImpl = fetch, dbFile
     goLiveAt,
     hasBol,
     hasWoo,
+    // Webshops with the same Bol.com API credentials share one Bol.com account.
+    bolAccount: hasBol ? shop.bol_client_id : null,
     syncPaused: Boolean(shop.sync_paused),
     start() {
       if (running) return;
@@ -173,7 +191,16 @@ export class ShopRegistry {
   }
 
   #createRuntime(shop) {
-    return createShopRuntime({ shop, config: this.config, hub: this.hub, fetchImpl: this.fetchImpl, dbFile: this.dbFileFor(shop.id) });
+    return createShopRuntime({
+      shop, config: this.config, hub: this.hub, fetchImpl: this.fetchImpl, dbFile: this.dbFileFor(shop.id),
+      bolPeers: () => this.bolPeers(shop.id),
+    });
+  }
+
+  /** The other webshops that use the same Bol.com account as this one. */
+  bolPeers(id) {
+    const account = this.get(id)?.bolAccount;
+    return account ? this.all().filter((rt) => rt.id !== id && rt.bolAccount === account) : [];
   }
 
   startAll() {

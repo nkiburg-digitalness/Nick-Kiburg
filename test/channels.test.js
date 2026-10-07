@@ -204,7 +204,7 @@ test('Bol: offer export links offers to products by EAN or reference, skipping F
 
   const result = await linkBolOffers(inventory, bol);
   assert.deepEqual([result.offers, result.linked, result.alreadyLinked, result.fbb], [5, 2, 1, 1]);
-  assert.deepEqual(result.unmatched, [{ ean: '8720000000005', reference: 'ALLEEN-BOL', stock: 6 }]);
+  assert.deepEqual(result.unmatched, [{ offerId: 'o5', ean: '8720000000005', reference: 'ALLEEN-BOL', stock: 6, title: null, packSize: null }]);
   assert.equal(inventory.getProduct('TS-1').bol_offer_id, 'o1');
   assert.equal(inventory.getProduct('TS-2').bol_offer_id, 'o2');
   assert.equal(inventory.getProduct('TS-2').ean, '8720000000002', 'EAN taken over when matched on reference');
@@ -327,4 +327,65 @@ test('History import: a year from the webshop, at most 90 days from Bol.com', as
   await woo.backfill(inventory, 365, now);
   const after = new URL(calls.find((c) => c.url.includes('/wc/v3/orders')).url).searchParams.get('after');
   assert.equal(after.slice(0, 10), '2025-10-05');
+});
+
+test('Shared Bol.com account: orders and offers of the other webshop are left alone', async () => {
+  const { db, inventory, logs } = setup();
+  // Tochtstripdeur: a tochtstrip with SKU "1st". Plakspiegels (same Bol account) sells EAN ...0099.
+  inventory.upsertProduct({ sku: '1st', name: 'Tochtstrip wit – 1 stuk', ean: '8720000000001', stock: 50 });
+  const knownElsewhere = ({ offerId, ean }) => (offerId === 'o-spiegel' || ean === '8720000000099' ? 'Plakspiegels.nl' : null);
+  setKv(db, 'bol:last_poll', new Date(Date.now() - 60_000).toISOString());
+  const csv = [
+    'offerId,ean,conditionName,stockAmount,fulfilmentType,referenceCode',
+    'o-strip,8720000000001,NEW,7,FBR,1st',
+    'o-spiegel,8720000000099,NEW,3,FBR,1st', // same reference "1st", other webshop
+    'o-new,8720000000098,NEW,3,FBR,1st', // reference "1st" but a different EAN: not the tochtstrip
+  ].join('\n');
+  let polls = 0;
+  const { fetchImpl, calls } = mockFetch([
+    ['POST', /token/, () => ({ body: { access_token: 't', expires_in: 299 } })],
+    ['GET', /\/retailer\/orders\?/, () => ({ body: { orders: [bolOrder('B1', [['item-9', '8720000000099', 1]])] } })],
+    ['POST', /\/retailer\/offers\/export$/, () => ({ status: 202, body: { processStatusId: 'p1', status: 'PENDING' } })],
+    ['GET', /\/shared\/process-status\/p1$/, () => ({ body: polls++ ? { status: 'SUCCESS', entityId: 'r1' } : { status: 'PENDING' } })],
+    ['GET', /\/retailer\/offers\/export\/r1$/, () => ({ body: csv })],
+    ['GET', /\/retailer\/content\/catalog-products\/8720000000098$/, () => ({ body: { attributes: [{ id: 'Title', values: [{ value: 'Tochtstrip wit – set van 4' }] }] } })],
+  ]);
+  const bol = new BolChannel({ config: bolConfig, db, bus: inventory.bus, fetchImpl, knownElsewhere });
+  bol.exportOffers = ((orig) => (opts) => orig.call(bol, { ...opts, pollMs: 1 }))(bol.exportOffers);
+
+  // An order of the other webshop: no warning, no order-detail request, no stock change.
+  assert.equal(await bol.poll(inventory), 0);
+  assert.equal(logs.filter((l) => l.level === 'warn').length, 0);
+  assert.equal(calls.some((c) => /\/retailer\/orders\/B1$/.test(c.url)), false);
+
+  const { linkBolOffers } = await import('../src/importer.js');
+  const result = await linkBolOffers(inventory, bol);
+  assert.equal(inventory.getProduct('1st').bol_offer_id, 'o-strip');
+  assert.deepEqual([result.linked, result.otherShop, result.otherShops], [1, 1, ['Plakspiegels.nl']]);
+  assert.deepEqual(result.unmatched.map((u) => u.offerId), ['o-new'], 'a matching reference with another EAN is not linked');
+  assert.deepEqual([result.unmatched[0].title, result.unmatched[0].packSize], ['Tochtstrip wit – set van 4', 4]);
+  assert.equal(calls.find((c) => c.url.includes('catalog-products')).headers['Accept-Language'], 'nl');
+});
+
+test('Webshops with the same Bol.com credentials know each other', async () => {
+  const { createApp } = await import('../src/app.js');
+  const app = createApp({ ...config, dbFile: ':memory:', demoMode: false, secretKey: 'k', legacyShop: null, adminEmail: null }, { fetchImpl: async () => new Response('{}') });
+  app.shops.create({ id: 'tsd', name: 'Tochtstripdeur.nl', bol_client_id: 'same', bol_client_secret: 's' });
+  app.shops.create({ id: 'ps', name: 'Plakspiegels.nl', bol_client_id: 'same', bol_client_secret: 's' });
+  app.shops.create({ id: 'other', name: 'Ander account', bol_client_id: 'different', bol_client_secret: 's' });
+  app.shops.get('ps').inventory.upsertProduct({ sku: 'SP-1', name: 'Plakspiegel', ean: '8720000000099', stock: 3 });
+  assert.deepEqual(app.shops.bolPeers('tsd').map((rt) => rt.id), ['ps']);
+  assert.equal(app.shops.get('tsd').channels.bol.knownElsewhere({ ean: '8720000000099' }), 'Plakspiegels.nl');
+  assert.equal(app.shops.get('other').channels.bol.knownElsewhere({ ean: '8720000000099' }), null);
+  app.stop?.();
+});
+
+test('Pack size is read from a Bol.com title', async () => {
+  const { packSizeFromTitle } = await import('../src/importer.js');
+  assert.equal(packSizeFromTitle('Plakspiegel rond 30 cm - Set van 4'), 4);
+  assert.equal(packSizeFromTitle('Spiegeltegels 6 stuks zelfklevend'), 6);
+  assert.equal(packSizeFromTitle('Tochtstopper 2-pack grijs'), 2);
+  assert.equal(packSizeFromTitle('Tochtstrip 100 x 4,5 cm'), null, 'dimensions are not a pack size');
+  assert.equal(packSizeFromTitle('Plakspiegel 1 stuk'), null);
+  assert.equal(packSizeFromTitle(null), null);
 });

@@ -62,7 +62,7 @@ export function linkReport(inventory, { hasWoo = true, hasBol = false, bolUnmatc
     rows.push({
       Soort: 'Bol-aanbieding zonder product',
       SKU: o.reference ?? '',
-      Naam: '',
+      Naam: o.title ?? '',
       Eenheid: '',
       Voorraad: o.stock ?? '',
       Geteld: '',

@@ -1,7 +1,7 @@
 import { getKv, setKv } from '../db.js';
 import { requestJson } from '../http.js';
 import { SkipSync } from './errors.js';
-import { parseCsv } from '../importer.js';
+import { parseCsv, matchByReference } from '../importer.js';
 
 const MINUTE_MS = 60 * 1000;
 const DAY_MS = 24 * 60 * MINUTE_MS;
@@ -17,8 +17,9 @@ const DAY_MS = 24 * 60 * MINUTE_MS;
 export class BolChannel {
   name = 'bol';
 
-  constructor({ config, db, bus, fetchImpl = fetch }) {
+  constructor({ config, db, bus, fetchImpl = fetch, knownElsewhere = () => null }) {
     this.config = config;
+    this.knownElsewhere = knownElsewhere; // ({ offerId, ean }) → name of another webshop on this Bol.com account
     this.db = db;
     this.bus = bus;
     this.fetchImpl = fetchImpl;
@@ -44,9 +45,10 @@ export class BolChannel {
     return this.token;
   }
 
-  async #api(path, { method = 'GET', body, accept = this.mediaType } = {}) {
+  async #api(path, { method = 'GET', body, accept = this.mediaType, language } = {}) {
     const token = await this.#accessToken();
     const headers = { Authorization: `Bearer ${token}`, Accept: accept };
+    if (language) headers['Accept-Language'] = language;
     if (body !== undefined) headers['Content-Type'] = this.mediaType;
     try {
       return (await requestJson(`${this.config.apiBase}${path}`, { method, headers, body, fetchImpl: this.fetchImpl })).data;
@@ -62,6 +64,20 @@ export class BolChannel {
     const data = await this.#api(`/retailer/orders?${new URLSearchParams({ 'fulfilment-method': this.config.fulfilmentMethod, status: 'OPEN', page: '1' })}`);
     const open = data?.orders?.length ?? 0;
     return `verbonden – ${open}${open === 50 ? '+' : ''} openstaande order(s)`;
+  }
+
+  /**
+   * Product title on Bol.com (catalog content), to recognise an offer by name.
+   * Best effort: null when it cannot be fetched.
+   */
+  async productTitle(ean) {
+    try {
+      const data = await this.#api(`/retailer/content/catalog-products/${encodeURIComponent(ean)}`, { language: 'nl' });
+      const attr = (data?.attributes ?? []).find((a) => String(a.id).toLowerCase() === 'title');
+      return attr?.values?.[0]?.value ?? null;
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -179,6 +195,8 @@ export class BolChannel {
         }
 
         let product = inventory.findProduct({ ean: item.ean });
+        // Sold by another webshop on the same Bol.com account: not ours, nothing to do.
+        if (!product && this.knownElsewhere({ ean: item.ean })) continue;
         if (!product || !product.bol_offer_id) {
           product = (await this.#linkFromOrderDetail(inventory, order.orderId, item.orderItemId)) ?? product;
         }
@@ -223,7 +241,10 @@ export class BolChannel {
     const item = await this.#orderItemDetail(orderId, orderItemId);
     if (!item) return null;
     const offerId = item.offer?.offerId;
-    const product = inventory.findProduct({ bolOfferId: offerId, sku: item.offer?.reference, ean: item.product?.ean });
+    const ean = item.product?.ean;
+    let product = inventory.findProduct({ bolOfferId: offerId }) ?? (ean ? inventory.findProduct({ ean }) : null);
+    // The offer reference is free text (often a SKU): only trust it if the EAN does not say otherwise.
+    if (!product && item.offer?.reference) product = matchByReference(inventory, item.offer.reference, ean);
     if (product && offerId && !product.bol_offer_id) {
       this.bus.log('info', `Bol-offer ${offerId} automatisch gekoppeld aan ${product.sku}`, { channel: this.name, sku: product.sku });
       return inventory.upsertProduct({ sku: product.sku, bol_offer_id: String(offerId) });

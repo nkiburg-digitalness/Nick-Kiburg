@@ -1054,6 +1054,17 @@ function bindUserMenu() {
   };
   importDialog.addEventListener('click', (e) => {
     if (e.target === importDialog || e.target.closest('[data-close]')) return importDialog.close();
+    const bolLink = e.target.closest('[data-bol-link]');
+    if (bolLink && bolUnmatched) {
+      const o = bolUnmatched.offers[Number(bolLink.dataset.bolLink)];
+      const row = bolLink.closest('.bol-offer');
+      return openListing({
+        shop: bolUnmatched.shop,
+        prefill: { name: o.title || `Bol.com ${o.ean}`, ean: o.ean, bol_offer_id: o.offerId },
+        components: [{ item_sku: '', quantity: o.packSize ?? 1 }],
+        onSaved: () => { row.classList.add('done'); bolLink.replaceWith(Object.assign(document.createElement('span'), { className: 'muted small', textContent: '✓ gekoppeld' })); },
+      });
+    }
     const button = e.target.closest('[data-import]');
     if (!button) return;
     if (button.dataset.import === 'woocommerce') {
@@ -1091,11 +1102,15 @@ function bindUserMenu() {
       runImport(button, async () => {
         showImport('Bezig met ophalen bij Bol.com… dit kan een paar minuten duren.');
         const r = await api(`${shopBase(importShop())}/import/bol-offers`, { method: 'POST' });
+        bolUnmatched = { shop: importShop(), offers: r.unmatched };
         const missing = r.unmatched.length
-          ? `<br><b>${r.unmatched.length} aanbieding(en) zonder product in deze webshop</b> (alleen op Bol.com, of EAN ontbreekt/wijkt af):<br>${r.unmatched.slice(0, 25).map((o) => `EAN ${esc(o.ean ?? '–')}${o.reference ? ` · referentie ${esc(o.reference)}` : ''}${o.stock !== null ? ` · voorraad Bol ${o.stock}` : ''}`).join('<br>')}${r.unmatched.length > 25 ? '<br>…' : ''}
-            <br>Die worden niet toegevoegd. Staat het product wél in de webshop? Vul dan de EAN in bij het juiste product (Excel-lijst) of via het product → <i>Verkoopartikel toevoegen</i>, en koppel opnieuw.`
+          ? `<br><b>${r.unmatched.length} aanbieding(en) zonder product in deze webshop.</b> Is het een set of een product zonder EAN in de webshop? Klik op <i>Koppelen</i> en kies welk product er per verkoop af gaat (en hoeveel). Staat het alleen op Bol.com, dan kunt u het laten staan.
+            <div class="bol-unmatched">${r.unmatched.map((o, i) => `<div class="bol-offer" data-offer-row="${i}">
+              <div><b>${esc(o.title ?? 'Titel onbekend')}</b><div class="muted small">EAN ${esc(o.ean ?? '–')}${o.reference ? ` · referentie ${esc(o.reference)}` : ''}${o.stock !== null ? ` · voorraad Bol ${o.stock}` : ''}${o.packSize ? ` · set van ${o.packSize}?` : ''}</div></div>
+              <button type="button" data-bol-link="${i}">Koppelen</button>
+            </div>`).join('')}</div>`
           : '';
-        return `Bol.com: ${r.offers} aanbiedingen gevonden. ${r.linked} nieuw gekoppeld, ${r.alreadyLinked} waren al gekoppeld${r.fbb ? `, ${r.fbb} FBB-aanbieding(en) overgeslagen` : ''}.${missing}`;
+        return `Bol.com: ${r.offers} aanbiedingen gevonden. ${r.linked} nieuw gekoppeld, ${r.alreadyLinked} waren al gekoppeld${r.fbb ? `, ${r.fbb} FBB-aanbieding(en) overgeslagen` : ''}${r.otherShop ? `, ${r.otherShop} horen bij ${r.otherShops.map(esc).join(' en ')} (zelfde Bol.com-account)` : ''}.${missing}`;
       });
     } else if (button.dataset.import === 'unlinked-list') {
       runImport(button, async () => {
@@ -1267,16 +1282,17 @@ async function renderUsers() {
 }
 
 /* ---------------------------------------------------------------- sales listings (beheerder) */
+let bolUnmatched = null;
 let listingCtx = null;
 
-async function openListing({ shop, listing = null, components = null, replaceProduct = null }) {
+async function openListing({ shop, listing = null, components = null, replaceProduct = null, prefill = null, onSaved = null }) {
   const dialog = $('#listing-dialog');
   const form = $('#listing-form');
   form.reset();
   $('#listing-error').hidden = true;
   const info = shopInfo(shop);
-  listingCtx = { shop, id: listing?.id ?? null, replace: replaceProduct?.sku ?? null, items: [] };
-  $('#listing-title').textContent = listing ? `${listing.name} bewerken` : replaceProduct ? `${replaceProduct.name} omzetten` : 'Verkoopartikel toevoegen';
+  listingCtx = { shop, id: listing?.id ?? null, replace: replaceProduct?.sku ?? null, items: [], onSaved };
+  $('#listing-title').textContent = listing ? `${listing.name} bewerken` : replaceProduct ? `${replaceProduct.name} omzetten` : prefill ? 'Bol.com-aanbieding koppelen' : 'Verkoopartikel toevoegen';
   $$('[data-bol-only]', form).forEach((el) => { el.hidden = !info?.hasBol; });
   $('#listing-delete').hidden = !listing;
   const replaceBox = $('#listing-replace');
@@ -1288,7 +1304,7 @@ async function openListing({ shop, listing = null, components = null, replacePro
   const src = listing ?? (replaceProduct ? {
     name: replaceProduct.name, sku: replaceProduct.sku, ean: replaceProduct.ean,
     woo_product_id: replaceProduct.woo_product_id, woo_variation_id: replaceProduct.woo_variation_id, bol_offer_id: replaceProduct.bol_offer_id,
-  } : {});
+  } : prefill ?? {});
   for (const f of ['name', 'sku', 'ean', 'woo_product_id', 'woo_variation_id', 'bol_offer_id']) form[f].value = src[f] ?? '';
 
   listingCtx.items = (await api(`${shopBase(shop)}/items`)).filter((i) => i.sku !== listingCtx.replace);
@@ -1355,6 +1371,7 @@ function bindListings() {
       if (listingCtx.id) await api(`${base}/${listingCtx.id}`, { method: 'PATCH', body });
       else await api(base, { method: 'POST', body });
       dialog.close();
+      listingCtx.onSaved?.();
       if (listingCtx.replace) detail.close();
       await load();
     } catch (ex) {

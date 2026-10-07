@@ -470,3 +470,9 @@ table.moves { width: 100%; border-collapse: collapse; font-size: 13px; }
   .hide-xs { display: none; }
   .products td, .products th { padding: 10px 8px; }
 }
+
+/* Bol.com offers without a product (after "link Bol.com offers") */
+.bol-unmatched { display: grid; gap: 6px; margin-top: 8px; max-height: 320px; overflow: auto; }
+.bol-offer { display: flex; gap: 10px; align-items: center; justify-content: space-between; border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; font-size: 13px; }
+.bol-offer.done { opacity: .6; }
+.bol-offer button { flex: none; }

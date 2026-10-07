@@ -80,6 +80,34 @@ export function importRows(inventory, rows, { userName = null } = {}) {
 }
 
 /**
+ * Product whose SKU equals a Bol.com offer reference, unless its EAN differs from the
+ * offer's EAN (then the reference is just a coincidence, e.g. "1st" in two webshops).
+ */
+export function matchByReference(inventory, reference, ean) {
+  const product = reference ? inventory.getProduct(String(reference)) : null;
+  if (!product) return null;
+  return !product.ean || !ean || product.ean === String(ean) ? product : null;
+}
+
+/** "Set van 4", "4 stuks", "4-pack", "4x" in a title → 4 (null when not found). */
+export function packSizeFromTitle(title) {
+  const m = String(title ?? '').match(/(?:set|pak|pack|verpakking|doos)\s*(?:van|à|a)?\s*(\d{1,3})\b|\b(\d{1,3})\s*(?:stuks?|st\.|-?pack|-?pak|x(?!\s*\d))(?![a-z])/i);
+  const n = m ? Number(m[1] ?? m[2]) : null;
+  return n && n > 1 ? n : null;
+}
+
+async function describeOffers(bol, offers) {
+  if (typeof bol.productTitle !== 'function') return;
+  for (let i = 0; i < offers.length; i += 4) {
+    await Promise.all(offers.slice(i, i + 4).map(async (o) => {
+      if (!o.ean) return;
+      o.title = await bol.productTitle(o.ean);
+      o.packSize = packSizeFromTitle(o.title);
+    }));
+  }
+}
+
+/**
  * Link the Bol.com offers of a webshop to its products – by offer id, EAN, or the
  * offer reference (often your SKU) – so stock is synced to Bol.com from now on,
  * without waiting for the first Bol.com order. FBB offers (stock kept by Bol.com)
@@ -88,10 +116,21 @@ export function importRows(inventory, rows, { userName = null } = {}) {
  */
 export async function linkBolOffers(inventory, bol, { userName = null } = {}) {
   const offers = await bol.exportOffers();
-  const result = { offers: offers.length, linked: 0, alreadyLinked: 0, fbb: 0, unmatched: [] };
+  const result = { offers: offers.length, linked: 0, alreadyLinked: 0, fbb: 0, otherShop: 0, otherShops: [], unmatched: [] };
+  const elsewhere = (ids) => bol.knownElsewhere?.(ids) ?? null;
+  const countOther = (name) => {
+    result.otherShop++;
+    if (!result.otherShops.includes(name)) result.otherShops.push(name);
+  };
   for (const o of offers) {
     if (o.fulfilment === 'FBB') {
       result.fbb++;
+      continue;
+    }
+    // Same Bol.com account as another webshop: an offer linked there is never linked here too.
+    const owner = elsewhere({ offerId: o.offerId });
+    if (owner) {
+      countOther(owner);
       continue;
     }
     const listing = inventory.findListing({ bolOfferId: o.offerId }) ?? (o.ean ? inventory.findListing({ ean: o.ean }) : null);
@@ -105,7 +144,7 @@ export async function linkBolOffers(inventory, bol, { userName = null } = {}) {
     }
     const product = inventory.findProduct({ bolOfferId: o.offerId })
       ?? (o.ean ? inventory.findProduct({ ean: o.ean }) : null)
-      ?? (o.reference ? inventory.getProduct(o.reference) : null);
+      ?? matchByReference(inventory, o.reference, o.ean);
     if (product) {
       if (product.bol_offer_id === o.offerId) {
         result.alreadyLinked++;
@@ -115,10 +154,14 @@ export async function linkBolOffers(inventory, bol, { userName = null } = {}) {
       if (!product.ean && o.ean && !inventory.findProduct({ ean: o.ean })) fields.ean = o.ean;
       inventory.upsertProduct(fields, { userName });
       result.linked++;
+    } else if (o.ean && elsewhere({ ean: o.ean })) {
+      countOther(elsewhere({ ean: o.ean }));
     } else {
-      result.unmatched.push({ ean: o.ean, reference: o.reference, stock: Number.isFinite(o.stock) ? o.stock : null });
+      result.unmatched.push({ offerId: o.offerId, ean: o.ean, reference: o.reference, stock: Number.isFinite(o.stock) ? o.stock : null });
     }
   }
+  // Titles help to recognise what an unlinked offer is (e.g. "… – set van 4").
+  await describeOffers(bol, result.unmatched.slice(0, 150));
   return result;
 }
 

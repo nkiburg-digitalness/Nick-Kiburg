@@ -22,8 +22,9 @@ try {
     for (const [name, channel] of Object.entries(rt.channels)) {
       if (typeof channel.backfill !== 'function') continue;
       process.stdout.write(`${rt.shop.name} – ${name}: orders van de afgelopen ${days} dagen ophalen… `);
-      const booked = await channel.backfill(rt.inventory, days);
-      console.log(`${booked} orderregel(s) als historie opgeslagen.`);
+      const r = await channel.backfill(rt.inventory, days);
+      const booked = typeof r === 'number' ? r : r.booked;
+      console.log(`${booked} nieuwe orderregel(s) als historie opgeslagen${typeof r === 'object' ? ` (${r.lines} gevonden, ${r.otherShop} van een andere webshop, ${r.unknown} onbekend)` : ''}.`);
     }
   }
 } catch (err) {

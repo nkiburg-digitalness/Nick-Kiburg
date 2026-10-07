@@ -395,3 +395,45 @@ test('Pack size is read from a Bol.com title', async () => {
   assert.equal(packSizeFromTitle('Plakspiegel 1 stuk'), null);
   assert.equal(packSizeFromTitle(null), null);
 });
+
+test('Bol history import reports what it found: new, already there, other webshop, unknown', async () => {
+  const { db, inventory } = setup();
+  inventory.upsertProduct({ sku: 'R20', name: 'Plakspiegel rond 20 – 1 stuk', stock: 84 });
+  inventory.saveListing({ name: 'Rond 20 – set van 4', ean: '8720000000004', bol_offer_id: 'o4', components: [{ item_sku: 'R20', quantity: 4 }] });
+  const now = new Date('2026-10-07T12:00:00Z');
+  const order = bolOrder('C1', [['l1', '8720000000004', 2], ['l2', '8720000000099', 1], ['l3', '8719999999999', 1]]);
+  order.orderPlacedDateTime = '2026-09-01T10:00:00Z';
+  let served = false;
+  const { fetchImpl } = mockFetch([
+    ['POST', /token/, () => ({ body: { access_token: 't', expires_in: 299 } })],
+    ['GET', /\/retailer\/orders\?/, () => {
+      const orders = served ? [] : [order];
+      served = true;
+      return { body: { orders } };
+    }],
+  ]);
+  const bol = new BolChannel({ config: bolConfig, db, bus: inventory.bus, fetchImpl, knownElsewhere: ({ ean }) => (ean === '8720000000099' ? 'Tochtstripdeur.nl' : null) });
+  const r = await bol.backfill(inventory, 365, now);
+  assert.deepEqual([r.orders, r.lines, r.booked, r.otherShop, r.unknown, r.unknownEans, r.days], [1, 3, 1, 1, 1, ['8719999999999'], 90]);
+  // History of the set: 2 sets = 8 pieces, without touching the stock.
+  const moves = db.prepare("SELECT delta, applied FROM stock_movements WHERE sku = 'R20' AND type = 'sale'").all();
+  assert.deepEqual(moves.map((m) => [m.delta, m.applied]), [[-8, 0]]);
+  assert.equal(inventory.getProduct('R20').stock, 84);
+
+  served = false;
+  const again = await bol.backfill(inventory, 365, now);
+  assert.equal(again.booked, 0, 'already read in: nothing new');
+  assert.equal(again.lines, 3);
+});
+
+test('Bol: a rate limit (429) is waited out and retried', async () => {
+  const { db, inventory } = setup();
+  let tries = 0;
+  const { fetchImpl } = mockFetch([
+    ['POST', /token/, () => ({ body: { access_token: 't', expires_in: 299 } })],
+    ['GET', /\/retailer\/orders\?/, () => (++tries < 3 ? { status: 429, body: { detail: 'Too many requests' }, headers: { 'retry-after': '2' } } : { body: { orders: [] } })],
+  ]);
+  const bol = new BolChannel({ config: { ...bolConfig, retryScale: 0.001 }, db, bus: inventory.bus, fetchImpl });
+  assert.deepEqual(await bol.listOrders({ status: 'ALL' }), []);
+  assert.equal(tries, 3);
+});

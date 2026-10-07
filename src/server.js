@@ -362,7 +362,15 @@ export function createHttpServer(app) {
       const days = Math.min(365, Math.max(1, Number.parseInt((await readJson(req)).days, 10) || 90));
       const result = {};
       for (const [name, channel] of Object.entries(rt.channels)) {
-        if (typeof channel.backfill === 'function') result[name] = await channel.backfill(rt.inventory, days);
+        if (typeof channel.backfill !== 'function') continue;
+        // One channel failing (e.g. Bol.com unreachable) does not lose the other's result.
+        try {
+          const r = await channel.backfill(rt.inventory, days);
+          result[name] = typeof r === 'number' ? { booked: r } : r;
+        } catch (err) {
+          result[name] = { error: err.message };
+          rt.bus.log('error', `Verkoophistorie van ${name === 'bol' ? 'Bol.com' : 'de webshop'} inlezen mislukt: ${err.message}`, { channel: name });
+        }
       }
       if (!Object.keys(result).length) {
         throw new AuthError('Deze webshop is nog niet gekoppeld: vul de sleutels in via Webshops beheren', 400);

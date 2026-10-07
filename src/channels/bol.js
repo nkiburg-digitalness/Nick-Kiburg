@@ -50,11 +50,19 @@ export class BolChannel {
     const headers = { Authorization: `Bearer ${token}`, Accept: accept };
     if (language) headers['Accept-Language'] = language;
     if (body !== undefined) headers['Content-Type'] = this.mediaType;
-    try {
-      return (await requestJson(`${this.config.apiBase}${path}`, { method, headers, body, fetchImpl: this.fetchImpl })).data;
-    } catch (err) {
-      if (err.status === 401) this.token = null; // force a fresh token next time
-      throw err;
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return (await requestJson(`${this.config.apiBase}${path}`, { method, headers, body, fetchImpl: this.fetchImpl })).data;
+      } catch (err) {
+        if (err.status === 401) this.token = null; // force a fresh token next time
+        // Too many requests: Bol.com says how long to wait. Wait (briefly) and try again.
+        if (err.status === 429 && attempt < 4) {
+          const waitMs = Math.min(15, Math.max(1, err.retryAfterSeconds ?? attempt * 2)) * 1000 * (this.config.retryScale ?? 1);
+          await new Promise((resolve) => setTimeout(resolve, waitMs));
+          continue;
+        }
+        throw err;
+      }
     }
   }
 
@@ -188,13 +196,16 @@ export class BolChannel {
   /** Import historical orders (up to 3 months) for the forecast without touching stock. */
   async backfill(inventory, days = 90, now = new Date()) {
     const orders = [];
-    for (const day of daysBetween(new Date(now.getTime() - days * DAY_MS), now, BOL_HISTORY_DAYS)) {
+    const dayList = daysBetween(new Date(now.getTime() - days * DAY_MS), now, BOL_HISTORY_DAYS);
+    for (const day of dayList) {
       orders.push(...await this.listOrders({ status: 'ALL', 'latest-change-date': day }));
     }
-    return this.bookOrders(inventory, orders, { applyToStock: false });
+    const stats = { orders: new Set(orders.map((o) => o.orderId)).size, lines: 0, otherShop: 0, unknown: 0, unknownEans: [] };
+    const booked = await this.bookOrders(inventory, orders, { applyToStock: false, stats });
+    return { booked, days: dayList.length, ...stats };
   }
 
-  async bookOrders(inventory, orders, { applyToStock } = {}) {
+  async bookOrders(inventory, orders, { applyToStock, stats = null } = {}) {
     let booked = 0;
     const seen = new Set();
     for (const order of orders) {
@@ -202,6 +213,7 @@ export class BolChannel {
         if (seen.has(item.orderItemId)) continue;
         seen.add(item.orderItemId);
         if (this.config.fulfilmentMethod !== 'ALL' && item.fulfilmentMethod && item.fulfilmentMethod !== this.config.fulfilmentMethod) continue;
+        if (stats) stats.lines++;
 
         const lineRef = `bol:order-item:${item.orderItemId}`;
         const quantity = (item.quantity ?? 0) - (item.quantityCancelled ?? 0);
@@ -210,7 +222,7 @@ export class BolChannel {
         // A sales listing (e.g. "Tochtband 10 m" = 10 m of the stock item) takes precedence.
         const listing = inventory.findListing({ ean: item.ean });
         if (listing) {
-          if (!listing.bol_offer_id) {
+          if (!listing.bol_offer_id && !stats) {
             const detail = await this.#orderItemDetail(order.orderId, item.orderItemId);
             if (detail?.offer?.offerId) inventory.linkListingOffer(listing.id, String(detail.offer.offerId));
           }
@@ -222,11 +234,21 @@ export class BolChannel {
 
         let product = inventory.findProduct({ ean: item.ean });
         // Sold by another webshop on the same Bol.com account: not ours, nothing to do.
-        if (!product && this.knownElsewhere({ ean: item.ean })) continue;
-        if (!product || !product.bol_offer_id) {
+        if (!product && this.knownElsewhere({ ean: item.ean })) {
+          if (stats) stats.otherShop++;
+          continue;
+        }
+        // Live orders: the order detail links the Bol offer. Not for history imports
+        // (hundreds of extra requests and Bol.com rate limits); EAN matching suffices.
+        if (!stats && (!product || !product.bol_offer_id)) {
           product = (await this.#linkFromOrderDetail(inventory, order.orderId, item.orderItemId)) ?? product;
         }
         if (!product) {
+          if (stats) {
+            stats.unknown++;
+            if (item.ean && stats.unknownEans.length < 20 && !stats.unknownEans.includes(item.ean)) stats.unknownEans.push(item.ean);
+            continue; // summarised in the result instead of one warning per line
+          }
           this.bus.log('warn', `Onbekend product in Bol-order ${order.orderId} (EAN ${item.ean}) – voeg het product toe of vul de EAN in`, { channel: this.name });
           continue;
         }

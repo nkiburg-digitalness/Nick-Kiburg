@@ -1166,8 +1166,14 @@ function bindUserMenu() {
       runImport(button, async () => {
         showImport('Bezig met inlezen… bij een heel jaar kan dit een paar minuten duren.');
         const r = await api(`${shopBase(importShop())}/backfill`, { method: 'POST', body: { days: Number($('#backfill-days').value) } });
-        const parts = Object.entries(r.orderLines).map(([c, n]) => `${CHANNELS[c] ?? c}: ${n} orderregels (${r.channelDays?.[c] ?? r.days} dagen)`);
-        return `Verkoophistorie ingelezen. ${parts.join(', ')}.${r.channelDays?.bol < r.days ? ' Bol.com geeft maximaal de laatste 3 maanden vrij.' : ''}`;
+        const parts = Object.entries(r.orderLines).map(([c, x]) => {
+          const name = `<b>${CHANNELS[c] ?? c}</b> (${r.channelDays?.[c] ?? r.days} dagen)`;
+          if (x.error) return `${name}: <span style="color:var(--critical-ink)">mislukt – ${esc(x.error)}</span>`;
+          if (x.lines === undefined) return `${name}: ${x.booked} nieuwe orderregels`;
+          const known = x.lines - x.otherShop - x.unknown;
+          return `${name}: ${x.orders} orders met ${x.lines} orderregels gevonden.<br>– ${x.booked} nieuw ingelezen, ${Math.max(0, known - x.booked)} stonden er al in${x.otherShop ? `, ${x.otherShop} van een andere webshop op hetzelfde Bol.com-account` : ''}${x.unknown ? `, <b>${x.unknown} van producten die niet gekoppeld zijn</b> (EAN ${x.unknownEans.map(esc).join(', ')}${x.unknown > x.unknownEans.length ? ', …' : ''})` : ''}.`;
+        });
+        return `Verkoophistorie ingelezen.<br>${parts.join('<br>')}${r.channelDays?.bol < r.days ? '<br>Bol.com geeft maximaal de laatste 3 maanden vrij.' : ''}`;
       });
     }
   });

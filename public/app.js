@@ -43,6 +43,8 @@ const state = {
 };
 
 const shopInfo = (id) => state.data?.shops.find((s) => s.id === id) ?? null;
+/** Text for a pending stock push: while a webshop is paused nothing is sent yet. */
+const pendingText = (shop) => (shopInfo(shop)?.syncPaused ? 'wacht – synchronisatie gepauzeerd' : 'bijwerken…');
 const shopBase = (id) => `/api/shops/${encodeURIComponent(id)}`;
 const productKey = (shop, sku) => `${shop}/${sku}`;
 
@@ -347,7 +349,7 @@ function syncCell(p) {
     if (!p.stock_confirmed) st = '<span class="state pending">wacht op telling</span>';
     else if (!state.data.demoMode && (!ch.connected || !linked)) st = '<span class="state">niet gekoppeld</span>';
     else if (pend?.lastError) st = `<span class="state error" title="${esc(pend.lastError)}">mislukt, opnieuw…</span>`;
-    else if (pend) st = '<span class="state pending">bijwerken…</span>';
+    else if (pend) st = `<span class="state pending">${s?.syncPaused ? 'gepauzeerd' : 'bijwerken…'}</span>`;
     else if (pushed) st = `<span class="state">${nf.format(pushed.stock)} ${pushed.stock === Math.max(0, p.stock) ? '✓' : ''}</span>`;
     else st = '<span class="state">–</span>';
     return `<span><i class="swatch ${c}"></i>${st}</span>`;
@@ -503,9 +505,14 @@ async function renderDetail({ shop, sku }, { keepScroll = false } = {}) {
           const pushed = p.channelStock[c];
           const pend = p.pendingSync[c];
           const linked = c === 'bol' ? p.bol_offer_id : p.woo_product_id;
+          // Not sold on its own on this channel, but as a pack / set: that is fine.
+          const via = listings.filter((l) => (c === 'bol' ? l.bol_offer_id || l.ean : l.woo_product_id)).length;
+          const what = linked
+            ? `gekoppeld (${c === 'bol' ? `offer ${esc(p.bol_offer_id)}` : `product #${esc(p.woo_product_id)}${p.woo_variation_id ? `/${esc(p.woo_variation_id)}` : ''}`})`
+            : via ? `niet los verkocht – via ${via} verkoopartikel${via > 1 ? 'en' : ''} (zie Verkocht als)` : 'niet gekoppeld';
           return `<div class="channel-row"><i class="swatch ${c}"></i><b>${CHANNELS[c]}</b>
-            <span class="grow muted">${linked ? `gekoppeld (${c === 'bol' ? `offer ${esc(p.bol_offer_id)}` : `product #${esc(p.woo_product_id)}${p.woo_variation_id ? `/${esc(p.woo_variation_id)}` : ''}`})` : 'niet gekoppeld'}</span>
-            <span>${pend?.lastError ? `<span style="color:var(--critical-ink)" title="${esc(pend.lastError)}">mislukt – wordt opnieuw geprobeerd</span>` : pend ? 'bijwerken…' : pushed ? `${nf.format(pushed.stock)} · ${relTime(pushed.syncedAt)}` : '–'}</span>
+            <span class="grow muted">${what}</span>
+            <span>${!linked ? '' : pend?.lastError ? `<span style="color:var(--critical-ink)" title="${esc(pend.lastError)}">mislukt – wordt opnieuw geprobeerd</span>` : pend ? pendingText(shop) : pushed ? `${nf.format(pushed.stock)} · ${relTime(pushed.syncedAt)}` : '–'}</span>
           </div>`;
         }).join('')}
       </div>
@@ -524,7 +531,8 @@ async function renderDetail({ shop, sku }, { keepScroll = false } = {}) {
               ${['woocommerce', 'bol'].filter((c) => (c === 'woocommerce' ? l.woo_product_id : (l.bol_offer_id || l.ean))).map((c) => {
                 const pushed = l.channelStock[c];
                 const pend = l.pendingSync[c];
-                return `<span><i class="swatch ${c}"></i>${CHANNELS[c]}: ${pend?.lastError ? '<span style="color:var(--critical-ink)">mislukt</span>' : pend ? 'bijwerken…' : pushed ? `${nf.format(pushed.stock)}${c === 'bol' && pushed.stock === 999 && l.available.quantity > 999 ? ' (max.)' : ''}` : c === 'bol' && !l.bol_offer_id ? 'wacht op offer-ID' : '–'}</span>`;
+                const noOffer = c === 'bol' && !l.bol_offer_id;
+                return `<span><i class="swatch ${c}"></i>${CHANNELS[c]}: ${noOffer ? '<span title="De EAN staat erin; de aanbieding zelf wordt gevonden bij Bol.com-aanbiedingen koppelen (Importeren / exporteren) of bij de eerste Bol-order">aanbieding nog zoeken</span>' : pend?.lastError ? '<span style="color:var(--critical-ink)">mislukt</span>' : pend ? pendingText(shop) : pushed ? `${nf.format(pushed.stock)}${c === 'bol' && pushed.stock === 999 && l.available.quantity > 999 ? ' (max.)' : ''}` : '–'}</span>`;
               }).join('')}
             </div>
           </div>

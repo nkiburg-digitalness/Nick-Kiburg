@@ -160,7 +160,18 @@ export function createHttpServer(app) {
       for (const l of rt.inventory.listListings()) {
         for (const c of l.components) {
           if (!usedIn.has(c.item_sku)) usedIn.set(c.item_sku, []);
-          usedIn.get(c.item_sku).push({ id: l.id, name: l.name, quantity: c.quantity });
+          usedIn.get(c.item_sku).push({
+            id: l.id, name: l.name, quantity: c.quantity,
+            // What was last sent for this listing per channel (shown in the product list).
+            channels: Object.fromEntries(['woocommerce', 'bol']
+              .filter((ch) => (ch === 'bol' ? l.bol_offer_id || l.ean : l.woo_product_id))
+              .map((ch) => [ch, {
+                linked: ch === 'bol' ? Boolean(l.bol_offer_id) : true,
+                stock: l.channelStock[ch]?.stock ?? null,
+                pending: Boolean(l.pendingSync[ch]),
+                error: l.pendingSync[ch]?.lastError ?? null,
+              }])),
+          });
         }
       }
       const items = forecastAll(rt.db, opts).map((p) => ({ ...p, shop: rt.id, usedIn: usedIn.get(p.sku) ?? [] }));

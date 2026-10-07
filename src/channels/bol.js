@@ -116,11 +116,37 @@ export class BolChannel {
   async pushStock(product, quantity) {
     if (!product.bol_offer_id) throw new SkipSync('geen Bol offer-ID gekoppeld');
     const amount = Math.min(this.config.maxStock, Math.max(0, quantity));
-    await this.#api(`/retailer/offers/${encodeURIComponent(product.bol_offer_id)}/stock`, {
+    const started = await this.#api(`/retailer/offers/${encodeURIComponent(product.bol_offer_id)}/stock`, {
       method: 'PUT',
       body: { amount, managedByRetailer: true },
     });
+    await this.#confirmProcess(started);
     return amount;
+  }
+
+  /**
+   * Bol.com accepts a stock update first and processes it afterwards. Wait briefly for
+   * the outcome so a refused update shows up as an error (and is retried) instead of
+   * silently counting as sent. Still pending after the wait: assume it goes through.
+   */
+  async #confirmProcess(started) {
+    if (!started?.processStatusId) return;
+    const pollMs = this.config.processPollMs ?? 1500;
+    const deadline = Date.now() + (this.config.processWaitMs ?? 8000);
+    let status = started;
+    for (;;) {
+      if (status?.status === 'SUCCESS') return;
+      if (['FAILURE', 'TIMEOUT'].includes(status?.status)) {
+        throw new Error(`Bol.com heeft de voorraad niet verwerkt: ${status.errorMessage || status.status}`);
+      }
+      if (Date.now() >= deadline) return;
+      await new Promise((resolve) => setTimeout(resolve, pollMs));
+      try {
+        status = await this.#api(`/shared/process-status/${encodeURIComponent(started.processStatusId)}`);
+      } catch {
+        return; // the update itself was accepted; only the status check failed
+      }
+    }
   }
 
   /** Fetch all pages of GET /retailer/orders for the given query. */

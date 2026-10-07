@@ -72,12 +72,18 @@ test('Bol: stock push uses the offer stock endpoint and caps at 999', async () =
   const { db, inventory } = setup();
   const { fetchImpl, calls } = mockFetch([
     ['POST', /token/, () => ({ body: { access_token: 't', expires_in: 299 } })],
-    ['PUT', /\/retailer\/offers\/o-1\/stock$/, () => ({ status: 202, body: { processStatusId: '1' } })],
+    ['PUT', /\/retailer\/offers\/o-1\/stock$/, () => ({ status: 202, body: { processStatusId: '1', status: 'PENDING' } })],
+    ['GET', /\/shared\/process-status\/1$/, () => ({ body: { processStatusId: '1', status: 'SUCCESS' } })],
+    ['PUT', /\/retailer\/offers\/o-bad\/stock$/, () => ({ status: 202, body: { processStatusId: '2', status: 'PENDING' } })],
+    ['GET', /\/shared\/process-status\/2$/, () => ({ body: { processStatusId: '2', status: 'FAILURE', errorMessage: 'Offer not found' } })],
   ]);
-  const bol = new BolChannel({ config: bolConfig, db, bus: inventory.bus, fetchImpl });
+  const bol = new BolChannel({ config: { ...bolConfig, processPollMs: 1 }, db, bus: inventory.bus, fetchImpl });
   assert.equal(await bol.pushStock({ bol_offer_id: 'o-1' }, 1500), 999);
   const put = calls.find((c) => c.method === 'PUT');
   assert.deepEqual(put.body, { amount: 999, managedByRetailer: true });
+  assert.ok(calls.some((c) => c.url.endsWith('/shared/process-status/1')), 'the outcome is checked');
+  // A refused update is an error (retried and shown), not a silent success.
+  await assert.rejects(bol.pushStock({ bol_offer_id: 'o-bad' }, 5), /niet verwerkt: Offer not found/);
   await assert.rejects(bol.pushStock({ bol_offer_id: null }, 5), SkipSync);
 });
 

@@ -333,10 +333,26 @@ function usedInCell(p) {
   return `<div class="used-in" title="${esc(p.usedIn.map((u) => `${u.name} (${u.quantity}×)`).join(', '))}">+ ${p.usedIn.length} verkoopartikel${p.usedIn.length > 1 ? 'en' : ''}</div>`;
 }
 
+/** Bol.com sets / packs of this item that are not sold on their own on Bol.com. */
+function bolSetLines(p, s) {
+  if (!s?.hasBol || p.bol_offer_id) return '';
+  const sets = (p.usedIn ?? []).filter((u) => u.channels?.bol);
+  return sets.slice(0, 2).map((u) => {
+    const b = u.channels.bol;
+    let st;
+    if (!p.stock_confirmed) st = 'wacht op telling';
+    else if (!b.linked) st = 'aanbieding zoeken';
+    else if (b.error) st = `<span class="error" title="${esc(b.error)}">mislukt, opnieuw…</span>`;
+    else if (b.pending) st = s.syncPaused ? 'gepauzeerd' : 'bijwerken…';
+    else st = b.stock === null ? '–' : `${nf.format(b.stock)} ✓`;
+    return `<span title="${esc(u.name)}"><i class="swatch bol"></i><span class="state">${u.quantity}×: ${st}</span></span>`;
+  }).join('') + (sets.length > 2 ? `<span class="state muted">+${sets.length - 2} op Bol.com</span>` : '');
+}
+
 function syncCell(p) {
   const s = shopInfo(p.shop);
   if (!p.woo_product_id && !p.bol_offer_id && p.usedIn?.length) {
-    return `<div class="sync"><span class="state">${p.stock_confirmed ? `via ${p.usedIn.length} verkoopartikel${p.usedIn.length > 1 ? 'en' : ''}` : 'wacht op telling'}</span></div>`;
+    return `<div class="sync"><span class="state">${p.stock_confirmed ? `via ${p.usedIn.length} verkoopartikel${p.usedIn.length > 1 ? 'en' : ''}` : 'wacht op telling'}</span>${bolSetLines(p, s)}</div>`;
   }
   // Webshops (or products) not on Bol.com show only the webshop line.
   const names = ['woocommerce', 'bol'].filter((c) => c === 'woocommerce' || (s?.hasBol && p.bol_offer_id) || p.pendingSync.bol);
@@ -353,7 +369,7 @@ function syncCell(p) {
     else if (pushed) st = `<span class="state">${nf.format(pushed.stock)} ${pushed.stock === Math.max(0, p.stock) ? '✓' : ''}</span>`;
     else st = '<span class="state">–</span>';
     return `<span><i class="swatch ${c}"></i>${st}</span>`;
-  }).join('')}</div>`;
+  }).join('')}${bolSetLines(p, s)}</div>`;
 }
 
 function sparkline(values, days) {

@@ -134,3 +134,14 @@ test('Link overview lists stock items, listings and unlinked Bol.com offers', as
   assert.equal(rows.at(-1).Soort, 'Bol-aanbieding zonder product');
   assert.match(reportToCsv(rows), /^﻿Soort;SKU;Naam/);
 });
+
+test('Link overview flags a set whose amount does not match its name', async () => {
+  const { linkReport } = await import('../src/report.js');
+  const { inventory } = setup();
+  inventory.upsertProduct({ sku: 'ROND20', name: 'Plakspiegel rond 20 cm – 1 stuk', stock: 84 });
+  inventory.saveListing({ name: 'Glazen Plakspiegels Rond 20 cm – Set van 4 – Echt Glas', ean: '8710000000001', components: [{ item_sku: 'ROND20', quantity: 1 }] });
+  inventory.saveListing({ name: 'Plakspiegels Rond 20 cm – 2 stuks', ean: '8710000000002', components: [{ item_sku: 'ROND20', quantity: 2 }] });
+  const rows = linkReport(inventory, { hasBol: true });
+  assert.match(rows.find((r) => r.Naam.includes('Set van 4'))['Let op'], /de naam zegt 4 stuks, maar per verkoop gaat er 1 af/);
+  assert.doesNotMatch(rows.find((r) => r.Naam.includes('2 stuks'))['Let op'], /Controleer het aantal/);
+});

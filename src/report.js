@@ -1,3 +1,5 @@
+import { packSizeFromTitle } from './importer.js';
+
 /**
  * Link overview of one webshop: every stock item and sales listing with its webshop
  * and Bol.com link and what needs attention, plus the Bol.com offers that could not
@@ -41,6 +43,11 @@ export function linkReport(inventory, { hasWoo = true, hasBol = false, bolUnmatc
     const notes = [];
     if (!l.woo_product_id && !l.bol_offer_id && !l.ean) notes.push('Niet gekoppeld aan webshop of Bol.com');
     if (hasBol && !l.woo_product_id && l.ean && !l.bol_offer_id) notes.push('Bol-aanbieding nog niet gevonden: koppel de Bol.com-aanbiedingen opnieuw');
+    // "Set van 4" / "4 stuks" in the name while it uses a different amount: likely a typo.
+    const size = packSizeFromTitle(l.name);
+    if (size && l.components.length === 1 && l.components[0].quantity !== size) {
+      notes.push(`Controleer het aantal: de naam zegt ${size} stuks, maar per verkoop gaat er ${l.components[0].quantity} af`);
+    }
     if (!l.components.length) notes.push('Geen onderdelen: verkopen worden nergens van afgeboekt. Uit het assortiment? Verwijder het via Opruimen. Anders: Verpakkingen en meters herkennen');
     else if (!l.available.known) notes.push('Een onderdeel is nog niet geteld');
     rows.push({

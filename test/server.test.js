@@ -370,3 +370,32 @@ test('new webshops start with syncing paused until a beheerder starts it', async
     close();
   }
 });
+
+test('history import runs in the background and reports per channel', async () => {
+  const { app, loggedIn, close } = await start();
+  try {
+    const request = await loggedIn();
+    // Fake a slow Bol.com history import on shop A.
+    let release;
+    app.shops.get('shop-a').channels.bol = { name: 'bol', backfill: () => new Promise((resolve) => { release = () => resolve({ booked: 3, orders: 2, lines: 5, otherShop: 1, unknown: 1, unknownEans: ['871'] }); }) };
+    app.shops.get('shop-a').channels.woocommerce.backfill = async () => 7;
+    const started = await request('/api/shops/shop-a/backfill', { method: 'POST', body: { days: 365 } });
+    assert.equal(started.status, 202);
+    assert.equal(started.data.running, true);
+    // A second click while running does not start a second import.
+    assert.equal((await request('/api/shops/shop-a/backfill', { method: 'POST', body: { days: 365 } })).data.startedAt, started.data.startedAt);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal((await request('/api/shops/shop-a/backfill')).data.current, 'bol');
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const done = (await request('/api/shops/shop-a/backfill')).data;
+    assert.equal(done.running, false);
+    assert.deepEqual(done.orderLines.woocommerce, { booked: 7 });
+    assert.equal(done.orderLines.bol.booked, 3);
+    assert.deepEqual(done.channelDays, { woocommerce: 365, bol: 90 });
+    const log = app.shops.get('shop-a').bus.recentLog(10).map((l) => l.message).join('\n');
+    assert.match(log, /Verkoophistorie Bol\.com: 2 orders, 5 orderregels – 3 nieuw, 1 van een andere webshop, 1 van niet-gekoppelde producten/);
+  } finally {
+    close();
+  }
+});

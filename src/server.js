@@ -357,28 +357,46 @@ export function createHttpServer(app) {
       rt.bus.log('info', `Bol.com-aanbiedingen gekoppeld door ${user.name}: ${result.linked} nieuw gekoppeld, ${result.alreadyLinked} al gekoppeld, ${result.unmatched.length} zonder product in de webshop`, { channel: 'bol' });
       send(res, 200, result);
     }, { shop: true }],
+    // History import runs in the background: a year of orders can take minutes, longer
+    // than a browser or proxy waits. The dashboard polls GET for the result, and the
+    // outcome is also written to the activity log.
     ['POST', new RegExp(`^${SHOP}/backfill$`), 'beheerder', async ({ req, res, user, rt }) => {
       // The webshop keeps all orders; Bol.com only gives the last 3 months (capped in the channel).
       const days = Math.min(365, Math.max(1, Number.parseInt((await readJson(req)).days, 10) || 90));
-      const result = {};
-      for (const [name, channel] of Object.entries(rt.channels)) {
-        if (typeof channel.backfill !== 'function') continue;
-        // One channel failing (e.g. Bol.com unreachable) does not lose the other's result.
-        try {
-          const r = await channel.backfill(rt.inventory, days);
-          result[name] = typeof r === 'number' ? { booked: r } : r;
-        } catch (err) {
-          result[name] = { error: err.message };
-          rt.bus.log('error', `Verkoophistorie van ${name === 'bol' ? 'Bol.com' : 'de webshop'} inlezen mislukt: ${err.message}`, { channel: name });
-        }
-      }
-      if (!Object.keys(result).length) {
+      const channels = Object.entries(rt.channels).filter(([, c]) => typeof c.backfill === 'function');
+      if (!channels.length) {
         throw new AuthError('Deze webshop is nog niet gekoppeld: vul de sleutels in via Webshops beheren', 400);
       }
-      rt.bus.log('info', `Verkoophistorie (${days} dagen) ingelezen door ${user.name}`);
-      rt.bus.publish('product', null);
-      send(res, 200, { days, orderLines: result, channelDays: Object.fromEntries(Object.keys(result).map((c) => [c, c === 'bol' ? Math.min(days, BOL_HISTORY_DAYS) : days])) });
+      if (rt.backfillJob?.running) return send(res, 202, rt.backfillJob);
+      const job = { running: true, days, startedAt: new Date().toISOString(), startedBy: user.name, orderLines: {}, channelDays: {} };
+      rt.backfillJob = job;
+      rt.bus.log('info', `Verkoophistorie (${days} dagen) inlezen gestart door ${user.name}`);
+      (async () => {
+        for (const [name, channel] of channels) {
+          job.current = name;
+          job.channelDays[name] = name === 'bol' ? Math.min(days, BOL_HISTORY_DAYS) : days;
+          const label = name === 'bol' ? 'Bol.com' : 'webshop';
+          // One channel failing (e.g. Bol.com unreachable) does not lose the other's result.
+          try {
+            const r = await channel.backfill(rt.inventory, days);
+            job.orderLines[name] = typeof r === 'number' ? { booked: r } : r;
+            const x = job.orderLines[name];
+            rt.bus.log('info', x.lines === undefined
+              ? `Verkoophistorie ${label}: ${x.booked} nieuwe orderregels`
+              : `Verkoophistorie ${label}: ${x.orders} orders, ${x.lines} orderregels – ${x.booked} nieuw, ${x.otherShop} van een andere webshop, ${x.unknown} van niet-gekoppelde producten`, { channel: name });
+          } catch (err) {
+            job.orderLines[name] = { error: err.message };
+            rt.bus.log('error', `Verkoophistorie ${label} inlezen mislukt: ${err.message}`, { channel: name });
+          }
+        }
+        job.running = false;
+        job.current = null;
+        job.finishedAt = new Date().toISOString();
+        rt.bus.publish('product', null);
+      })();
+      send(res, 202, job);
     }, { shop: true }],
+    ['GET', new RegExp(`^${SHOP}/backfill$`), 'beheerder', ({ res, rt }) => send(res, 200, rt.backfillJob ?? { running: false }), { shop: true }],
 
     // --- webshop management (beheerder)
     ['GET', /^\/api\/shops$/, 'beheerder', ({ res }) => {

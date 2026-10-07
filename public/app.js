@@ -349,6 +349,18 @@ function bolSetLines(p, s) {
   }).join('') + (sets.length > 2 ? `<span class="state muted">+${sets.length - 2} op Bol.com</span>` : '');
 }
 
+/** Result of a history import, per channel. */
+function backfillSummary(r) {
+  const parts = Object.entries(r.orderLines ?? {}).map(([c, x]) => {
+    const name = `<b>${CHANNELS[c] ?? c}</b> (${r.channelDays?.[c] ?? r.days} dagen)`;
+    if (x.error) return `${name}: <span style="color:var(--critical-ink)">mislukt – ${esc(x.error)}</span>`;
+    if (x.lines === undefined) return `${name}: ${x.booked} nieuwe orderregels`;
+    const known = x.lines - x.otherShop - x.unknown;
+    return `${name}: ${x.orders} orders met ${x.lines} orderregels gevonden.<br>– ${x.booked} nieuw ingelezen, ${Math.max(0, known - x.booked)} stonden er al in${x.otherShop ? `, ${x.otherShop} van een andere webshop op hetzelfde Bol.com-account` : ''}${x.unknown ? `, <b>${x.unknown} van producten die niet gekoppeld zijn</b> (EAN ${x.unknownEans.map(esc).join(', ')}${x.unknown > x.unknownEans.length ? ', …' : ''})` : ''}.`;
+  });
+  return `Verkoophistorie ingelezen.<br>${parts.join('<br>')}${r.channelDays?.bol < r.days ? '<br>Bol.com geeft maximaal de laatste 3 maanden vrij.' : ''}`;
+}
+
 function syncCell(p) {
   const s = shopInfo(p.shop);
   if (!p.woo_product_id && !p.bol_offer_id && p.usedIn?.length) {
@@ -1164,16 +1176,14 @@ function bindUserMenu() {
       });
     } else if (button.dataset.import === 'backfill') {
       runImport(button, async () => {
-        showImport('Bezig met inlezen… bij een heel jaar kan dit een paar minuten duren.');
-        const r = await api(`${shopBase(importShop())}/backfill`, { method: 'POST', body: { days: Number($('#backfill-days').value) } });
-        const parts = Object.entries(r.orderLines).map(([c, x]) => {
-          const name = `<b>${CHANNELS[c] ?? c}</b> (${r.channelDays?.[c] ?? r.days} dagen)`;
-          if (x.error) return `${name}: <span style="color:var(--critical-ink)">mislukt – ${esc(x.error)}</span>`;
-          if (x.lines === undefined) return `${name}: ${x.booked} nieuwe orderregels`;
-          const known = x.lines - x.otherShop - x.unknown;
-          return `${name}: ${x.orders} orders met ${x.lines} orderregels gevonden.<br>– ${x.booked} nieuw ingelezen, ${Math.max(0, known - x.booked)} stonden er al in${x.otherShop ? `, ${x.otherShop} van een andere webshop op hetzelfde Bol.com-account` : ''}${x.unknown ? `, <b>${x.unknown} van producten die niet gekoppeld zijn</b> (EAN ${x.unknownEans.map(esc).join(', ')}${x.unknown > x.unknownEans.length ? ', …' : ''})` : ''}.`;
-        });
-        return `Verkoophistorie ingelezen.<br>${parts.join('<br>')}${r.channelDays?.bol < r.days ? '<br>Bol.com geeft maximaal de laatste 3 maanden vrij.' : ''}`;
+        const shop = importShop();
+        let job = await api(`${shopBase(shop)}/backfill`, { method: 'POST', body: { days: Number($('#backfill-days').value) } });
+        while (job.running) {
+          showImport(`Bezig met inlezen${job.current ? ` (${job.current === 'bol' ? 'Bol.com' : 'webshop'})` : ''}… bij een heel jaar kan dit enkele minuten duren. U kunt dit venster sluiten: het resultaat komt ook onder <i>Live activiteit</i>.`);
+          await new Promise((resolve) => setTimeout(resolve, 3000));
+          job = await api(`${shopBase(shop)}/backfill`);
+        }
+        return backfillSummary(job);
       });
     }
   });

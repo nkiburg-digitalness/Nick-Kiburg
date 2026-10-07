@@ -65,7 +65,10 @@ export function linkReport(inventory, { hasWoo = true, hasBol = false, bolUnmatc
     });
   }
 
-  for (const o of bolUnmatched) {
+  // The list is from the last "link Bol.com offers"; leave out what has been linked since.
+  const linkedSince = (o) => (o.offerId && (inventory.findProduct({ bolOfferId: o.offerId }) || inventory.findListing({ bolOfferId: o.offerId })))
+    || (o.ean && (inventory.findProduct({ ean: o.ean }) || inventory.findListing({ ean: o.ean })));
+  for (const o of bolUnmatched.filter((x) => !linkedSince(x))) {
     rows.push({
       Soort: 'Bol-aanbieding zonder product',
       SKU: o.reference ?? '',

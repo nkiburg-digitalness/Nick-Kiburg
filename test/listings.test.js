@@ -167,3 +167,11 @@ test('Bol.com title "70x55" matches webshop variation "70 x 55 cm"', async () =>
   assert.equal(bestMatch('Koelmat Hond & Kat | Roze L | 70x55 cm | Verkoelingsmat Zonder Giftige Gel | Anti-Slip | Wasbaar', products)?.name, 'Koelmat - Roze – L - 70 x 55 cm');
   assert.equal(bestMatch('Koelmat Hond & Kat | Roze XL | 100x70 cm | Verkoelingsmat', products)?.name, 'Koelmat - Roze – XL - 100 x 70 cm');
 });
+
+test('Link overview leaves out Bol.com offers that were linked after the last link run', async () => {
+  const { linkReport } = await import('../src/report.js');
+  const { inventory } = setup();
+  inventory.upsertProduct({ sku: 'KM-L', name: 'Koelmat Roze L', ean: '6151043314365', bol_offer_id: 'a49c', woo_product_id: 1933, stock: 0 });
+  const rows = linkReport(inventory, { hasBol: true, bolUnmatched: [{ offerId: 'a49c', ean: '6151043314365' }, { offerId: 'zz', ean: '6151099999999' }] });
+  assert.deepEqual(rows.filter((r) => r.Soort === 'Bol-aanbieding zonder product').map((r) => r.EAN), ['6151099999999']);
+});

@@ -11,6 +11,7 @@ import { BolChannel } from './channels/bol.js';
 import { WooCommerceChannel } from './channels/woocommerce.js';
 import { DemoChannel, startDemoSales } from './channels/demo.js';
 import { AuthError } from './auth.js';
+import { resumeHistoryImport } from './history.js';
 
 /** Identity colours for webshops (names map to CSS tokens with light/dark variants). */
 export const SHOP_COLORS = ['aqua', 'violet', 'magenta', 'yellow', 'green', 'red'];
@@ -137,6 +138,8 @@ export function createShopRuntime({ shop, config, hub, fetchImpl = fetch, dbFile
       for (const p of pollers) p.start();
       backups?.start();
       if (config.demoMode) stopDemo = startDemoSales(inventory, { hasBol });
+      // A history import interrupted by a restart (e.g. a new version going live) resumes.
+      else setTimeout(() => { if (running) resumeHistoryImport(this); }, 5000).unref?.();
     },
     stop() {
       running = false;

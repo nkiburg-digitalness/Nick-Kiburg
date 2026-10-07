@@ -399,3 +399,24 @@ test('history import runs in the background and reports per channel', async () =
     close();
   }
 });
+
+test('an interrupted history import resumes after a restart', async () => {
+  const { app, close } = await start();
+  try {
+    const { setKv, getKv } = await import('../src/db.js');
+    const { resumeHistoryImport } = await import('../src/history.js');
+    const rt = app.shops.get('shop-a');
+    rt.channels.woocommerce.backfill = async (inv, days, now, { onProgress }) => { onProgress(1, 1); return days; };
+    setKv(rt.db, 'history_import:pending', JSON.stringify({ days: 365, startedBy: 'Nick' }));
+    const job = resumeHistoryImport(rt);
+    assert.equal(job.resumed, true);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(rt.backfillJob.running, false);
+    assert.deepEqual(rt.backfillJob.orderLines.woocommerce, { booked: 365 });
+    assert.equal(getKv(rt.db, 'history_import:pending'), null, 'done: nothing left to resume');
+    assert.equal(resumeHistoryImport(rt), null);
+    assert.match(rt.bus.recentLog(5).map((l) => l.message).join('\n'), /hervat na een herstart/);
+  } finally {
+    close();
+  }
+});

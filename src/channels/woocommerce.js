@@ -118,7 +118,7 @@ export class WooCommerceChannel {
     return booked;
   }
 
-  async #ordersSince(after, { field = 'modified_after' } = {}) {
+  async #ordersSince(after, { field = 'modified_after', onProgress = null } = {}) {
     const orders = [];
     for (let page = 1; page <= 200; page++) {
       const params = new URLSearchParams({
@@ -132,6 +132,7 @@ export class WooCommerceChannel {
       const { data, headers } = await this.#api(`/orders?${params}`);
       orders.push(...(data ?? []));
       const totalPages = Number.parseInt(headers.get('x-wp-totalpages') ?? '1', 10);
+      onProgress?.(page, totalPages);
       if (page >= totalPages || !data?.length) break;
     }
     return orders;
@@ -150,8 +151,8 @@ export class WooCommerceChannel {
   }
 
   /** Import historical orders for the forecast without touching stock. */
-  async backfill(inventory, days = 90, now = new Date()) {
-    const orders = await this.#ordersSince(new Date(now.getTime() - days * DAY_MS), { field: 'after' });
+  async backfill(inventory, days = 90, now = new Date(), { onProgress = null } = {}) {
+    const orders = await this.#ordersSince(new Date(now.getTime() - days * DAY_MS), { field: 'after', onProgress });
     let booked = 0;
     for (const order of orders) booked += this.bookOrder(inventory, order, { applyToStock: false });
     return booked;

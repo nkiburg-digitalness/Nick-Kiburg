@@ -1180,7 +1180,9 @@ function bindUserMenu() {
         const shop = importShop();
         let job = await api(`${shopBase(shop)}/backfill`, { method: 'POST', body: { days: Number($('#backfill-days').value) } });
         while (job.running) {
-          showImport(`Bezig met inlezen${job.current ? ` (${job.current === 'bol' ? 'Bol.com' : 'webshop'})` : ''}… bij een heel jaar kan dit enkele minuten duren. U kunt dit venster sluiten: het resultaat komt ook onder <i>Live activiteit</i>.`);
+          const where = job.current === 'bol' ? 'Bol.com' : job.current ? 'webshop' : '';
+          const step = job.progress ? `: ${job.progress.done} van ${job.progress.total} ${job.current === 'bol' ? 'dagen' : "pagina's"}` : '';
+          showImport(`Bezig met inlezen${where ? ` (${where}${step})` : ''}… dit kan enkele minuten duren, bij Bol.com soms langer (Bol.com laat maar een beperkt aantal aanvragen per minuut toe). U kunt dit venster sluiten: de voortgang en het resultaat staan ook onder <i>Live activiteit</i>.`);
           await new Promise((resolve) => setTimeout(resolve, 3000));
           job = await api(`${shopBase(shop)}/backfill`);
         }
@@ -1264,6 +1266,14 @@ function updateExportLink() {
   $('#export-link').href = `${shopBase(id)}/export/products.csv`;
   $('#report-link').href = `${shopBase(id)}/export/koppelingen.csv`;
   $('#bol-link-section').hidden = !can('beheerder') || !shopInfo(id)?.hasBol;
+  // A history import still running for this webshop: show its progress again. (Clicking
+  // while one runs does not start a second one; it follows the running import.)
+  const button = $('[data-import="backfill"]');
+  if (can('beheerder') && id && !button.disabled) {
+    api(`${shopBase(id)}/backfill`).then((job) => {
+      if (job.running && $('#import-shop').value === id && !button.disabled) button.click();
+    }).catch(() => {});
+  }
 }
 
 function showNewPassword(name, password, email) {

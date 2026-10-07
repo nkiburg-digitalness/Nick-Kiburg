@@ -202,7 +202,7 @@ export class BolChannel {
    * days are requested at a calm pace, a "too many requests" is waited out, and each
    * day is booked right away: if Bol.com keeps refusing, what was read stays.
    */
-  async backfill(inventory, days = 90, now = new Date()) {
+  async backfill(inventory, days = 90, now = new Date(), { onProgress = null } = {}) {
     const dayList = daysBetween(new Date(now.getTime() - days * DAY_MS), now, BOL_HISTORY_DAYS);
     const stats = { orders: 0, lines: 0, otherShop: 0, unknown: 0, unknownEans: [] };
     const seenOrders = new Set();
@@ -219,6 +219,7 @@ export class BolChannel {
       stats.orders += orders.length;
       booked += await this.bookOrders(inventory, orders, { applyToStock: false, stats });
       daysRead++;
+      onProgress?.(daysRead, dayList.length);
       await new Promise((resolve) => setTimeout(resolve, this.config.historyPaceMs ?? 1200));
     }
     return { booked, days: daysRead, ...stats };

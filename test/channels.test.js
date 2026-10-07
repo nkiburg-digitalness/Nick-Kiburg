@@ -167,7 +167,12 @@ test('WooCommerce import takes over EAN codes when available', async () => {
   const { importFromWooCommerce } = await import('../src/importer.js');
   assert.equal(eanOf({ global_unique_id: '8720618400011' }), '8720618400011');
   assert.equal(eanOf({ global_unique_id: '', meta_data: [{ key: '_alg_ean', value: '8712345678906' }] }), '8712345678906');
-  assert.equal(eanOf({ global_unique_id: 'geen-ean', meta_data: [{ key: 'kleur', value: '8712345678906' }] }), null);
+  assert.equal(eanOf({ global_unique_id: 'geen-ean', meta_data: [{ key: 'kleur', value: '8712345678907' }] }), null, 'not a valid barcode');
+  assert.equal(eanOf({ meta_data: [{ key: '_mijn_veld', value: '6151043314365' }] }), '6151043314365', 'a valid barcode in a field with another name');
+  assert.equal(eanOf({ meta_data: [{ key: 'gewijzigd', value: '1791234567893' }] }), null, 'a timestamp is not a barcode');
+  assert.equal(eanOf({ ean: '6151042681628' }), '6151042681628', 'plugin field in the REST response');
+  assert.equal(eanOf({ sku: '6151036923987' }), '6151036923987', 'barcode used as SKU');
+  assert.equal(eanOf({ sku: 'KM-ROZE-L' }), null);
 
   const { inventory } = setup();
   inventory.upsertProduct({ sku: 'B', name: 'Bestaand', ean: '1111111111111', stock: 1 });

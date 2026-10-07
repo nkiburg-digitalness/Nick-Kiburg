@@ -173,13 +173,14 @@ export class WooCommerceChannel {
               result.push({
                 woo_product_id: p.id, woo_variation_id: v.id, sku: v.sku, parent_sku: p.sku || '', options,
                 name: `${p.name} – ${options.join(', ')}`, stock: v.manage_stock === true ? v.stock_quantity : null, ean: eanOf(v),
+                fields: eanOf(v) ? undefined : fieldNames(v),
               });
             }
             const vpages = Number.parseInt(vheaders.get('x-wp-totalpages') ?? '1', 10);
             if (vpage >= vpages || !variations?.length) break;
           }
         } else {
-          result.push({ woo_product_id: p.id, woo_variation_id: null, sku: p.sku, parent_sku: '', options: [], name: p.name, stock: p.manage_stock ? p.stock_quantity : null, ean: eanOf(p) });
+          result.push({ woo_product_id: p.id, woo_variation_id: null, sku: p.sku, parent_sku: '', options: [], name: p.name, stock: p.manage_stock ? p.stock_quantity : null, ean: eanOf(p), fields: eanOf(p) ? undefined : fieldNames(p) });
         }
       }
       const totalPages = Number.parseInt(headers.get('x-wp-totalpages') ?? '1', 10);
@@ -195,11 +196,43 @@ export class WooCommerceChannel {
  */
 export function eanOf(product) {
   const valid = (v) => (/^\d{8,14}$/.test(String(v ?? '').trim()) ? String(v).trim() : null);
+  const NAMED = /ean|gtin|barcode|upc/i;
   if (valid(product.global_unique_id)) return valid(product.global_unique_id);
-  for (const meta of product.meta_data ?? []) {
-    if (/ean|gtin|barcode/i.test(meta.key) && valid(meta.value)) return valid(meta.value);
+  // Plugins that add their own field to the REST response (e.g. "ean": "8712345678906").
+  for (const [key, value] of Object.entries(product)) {
+    if (NAMED.test(key) && valid(value)) return valid(value);
   }
+  for (const meta of product.meta_data ?? []) {
+    if (NAMED.test(meta.key) && valid(meta.value)) return valid(meta.value);
+  }
+  // A field with another name holding a valid barcode (check digit correct), or a SKU
+  // that is a barcode: almost certainly the EAN.
+  for (const meta of product.meta_data ?? []) {
+    if (looksLikeBarcode(meta.value)) return String(meta.value).trim();
+  }
+  if (isGtin(product.sku) && String(product.sku).trim().length >= 12) return String(product.sku).trim();
   return null;
+}
+
+/** Valid GTIN-8/12/13/14 (EAN, UPC) by its check digit. */
+export function isGtin(value) {
+  const s = String(value ?? '').trim();
+  if (!/^(\d{8}|\d{12,14})$/.test(s)) return false;
+  const digits = [...s].map(Number);
+  const check = digits.pop();
+  const sum = digits.reverse().reduce((acc, d, i) => acc + d * (i % 2 === 0 ? 3 : 1), 0);
+  return (10 - (sum % 10)) % 10 === check;
+}
+
+/** A 13-digit EAN in a field with an unknown name; not a date or a millisecond timestamp. */
+function looksLikeBarcode(value) {
+  const s = String(value ?? '').trim();
+  return /^\d{13}$/.test(s) && !/^1[5-9]/.test(s) && isGtin(s);
+}
+
+/** Field names of a webshop product (for "where is the EAN?" when none was found). */
+export function fieldNames(product) {
+  return (product.meta_data ?? []).map((m) => m.key).filter(Boolean);
 }
 
 /** WooCommerce *_gmt fields have no timezone suffix. */

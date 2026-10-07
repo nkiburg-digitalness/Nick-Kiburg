@@ -145,3 +145,17 @@ test('Link overview flags a set whose amount does not match its name', async () 
   assert.match(rows.find((r) => r.Naam.includes('Set van 4'))['Let op'], /de naam zegt 4 stuks, maar per verkoop gaat er 1 af/);
   assert.doesNotMatch(rows.find((r) => r.Naam.includes('2 stuks'))['Let op'], /Controleer het aantal/);
 });
+
+test('Bol.com title → suggested webshop product (colour and size must match)', async () => {
+  const { bestMatch } = await import('../src/importer.js');
+  const products = [
+    'Koelmat Hond & Kat – Roze, L', 'Koelmat Hond & Kat – Roze, XL', 'Koelmat Hond & Kat – Blauw, L',
+    'Koelmat Hond & Kat – Roze, M', 'Waterkoelmat Hond & Kat – Grijs, Large', 'Waterkoelmat Hond & Kat – Wit, Large',
+  ].map((name, i) => ({ sku: `K${i}`, name }));
+  const title = (t) => bestMatch(t, products)?.name ?? null;
+  assert.equal(title('Koelmat Hond & Kat | Roze L | 70x55 cm | Verkoelingsmat Zonder Giftige Gel | Anti-Slip | Wasbaar'), 'Koelmat Hond & Kat – Roze, L');
+  assert.equal(title('Koelmat Hond & Kat | Roze XL | 100x70 cm | Verkoelingsmat Zonder Giftige Gel'), 'Koelmat Hond & Kat – Roze, XL');
+  assert.equal(title('Waterkoelmat Hond & Kat | Wit Large | 50x60 cm | Koelmat Met Water'), 'Waterkoelmat Hond & Kat – Wit, Large');
+  assert.equal(title('Koelmat Hond & Kat | Antraciet XL | 100x70 cm'), null, 'no colour match: no suggestion');
+  assert.equal(title(null), null);
+});

@@ -349,6 +349,15 @@ function bolSetLines(p, s) {
   }).join('') + (sets.length > 2 ? `<span class="state muted">+${sets.length - 2} op Bol.com</span>` : '');
 }
 
+/** After taking over the webshop products: are the EANs there (needed for Bol.com)? */
+function eanNote(r, shop) {
+  if (!shop?.hasBol || r.withEan === undefined) return '';
+  const total = r.withEan + r.withoutEan.length;
+  const next = '<br><b>Volgende stap:</b> klik hieronder op <i>Bol.com-aanbiedingen koppelen</i>.';
+  if (!r.withoutEan.length) return `<br>Alle ${total} producten hebben een EAN uit de webshop.${next}`;
+  return `<br><b>${r.withoutEan.length} van de ${total} producten hebben geen EAN in de webshop</b>${r.withEan ? '' : ' – waarschijnlijk staat de EAN in WooCommerce in een veld dat het dashboard niet kan lezen'}. Het dashboard leest het WooCommerce-veld <i>GTIN, UPC, EAN of ISBN</i> (tabblad Voorraad, ook per variatie). Vul de EAN daar in, of in de Excel-lijst (kolom ean).${r.fieldsWithoutEan?.length ? `<br><span class="muted small">Extra velden die de webshop bij deze producten doorgeeft: ${r.fieldsWithoutEan.map(esc).join(', ')}. Staat uw EAN in een van deze velden? Geef de naam door, dan kan het dashboard hem daar ook uitlezen.</span>` : r.withEan ? '' : '<br><span class="muted small">De webshop geeft bij deze producten geen extra velden door. Een EAN-plugin moet de EAN dan eerst "zichtbaar maken voor de REST API" (een instelling in de meeste EAN-plugins).</span>'}${next} Bij aanbiedingen die dan niet vanzelf gekoppeld worden, doet het dashboard op basis van de titel een voorstel.`;
+}
+
 /** Result of a history import, per channel. */
 function backfillSummary(r) {
   const parts = Object.entries(r.orderLines ?? {}).map(([c, x]) => {
@@ -1091,6 +1100,20 @@ function bindUserMenu() {
   };
   importDialog.addEventListener('click', (e) => {
     if (e.target === importDialog || e.target.closest('[data-close]')) return importDialog.close();
+    const bolQuick = e.target.closest('[data-bol-quick]');
+    if (bolQuick && bolUnmatched) {
+      const o = bolUnmatched.offers[Number(bolQuick.dataset.bolQuick)];
+      const row = bolQuick.closest('.bol-offer');
+      bolQuick.disabled = true;
+      api(`${shopBase(bolUnmatched.shop)}/products`, { method: 'POST', body: { sku: o.suggestion.sku, ean: o.ean, bol_offer_id: o.offerId } })
+        .then(() => {
+          row.classList.add('done');
+          $('.actions', row).replaceWith(Object.assign(document.createElement('span'), { className: 'muted small', textContent: `✓ gekoppeld aan ${o.suggestion.name}` }));
+          load();
+        })
+        .catch((err) => { bolQuick.disabled = false; alert(err.message); });
+      return;
+    }
     const bolLink = e.target.closest('[data-bol-link]');
     if (bolLink && bolUnmatched) {
       const o = bolUnmatched.offers[Number(bolLink.dataset.bolLink)];
@@ -1107,7 +1130,7 @@ function bindUserMenu() {
     if (button.dataset.import === 'woocommerce') {
       runImport(button, async () => {
         const r = await api(`${shopBase(importShop())}/import/woocommerce`, { method: 'POST' });
-        return `Producten uit de webshop: ${summary(r)}${r.uncounted ? `<br><b>${r.uncounted} product(en) hebben in WooCommerce geen voorraadaantal</b> ("Voorraad beheren" staat uit). Die staan op <i>Nog niet geteld</i> en worden pas naar de kanalen gestuurd na een voorraadtelling – via de Excel-lijst (kolom stock) of per product.` : ''}${r.generatedSkus ? `<br>${r.generatedSkus} variatie(s) hebben in WooCommerce geen eigen SKU; die hebben hier een eigen SKU gekregen (bijv. met de kleur erin), zodat elke variatie apart geteld wordt.` : ''}${r.repaired?.length ? `<br><b>Hersteld:</b> deze producten bevatten eerder meerdere variaties tegelijk en staan nu op <i>Nog niet geteld</i>: ${r.repaired.map(esc).join(', ')}. Lees daarna de verkoophistorie opnieuw in.` : ''}`;
+        return `Producten uit de webshop: ${summary(r)}${r.uncounted ? `<br><b>${r.uncounted} product(en) hebben in WooCommerce geen voorraadaantal</b> ("Voorraad beheren" staat uit). Die staan op <i>Nog niet geteld</i> en worden pas naar de kanalen gestuurd na een voorraadtelling – via de Excel-lijst (kolom stock) of per product.` : ''}${r.generatedSkus ? `<br>${r.generatedSkus} variatie(s) hebben in WooCommerce geen eigen SKU; die hebben hier een eigen SKU gekregen (bijv. met de kleur erin), zodat elke variatie apart geteld wordt.` : ''}${r.repaired?.length ? `<br><b>Hersteld:</b> deze producten bevatten eerder meerdere variaties tegelijk en staan nu op <i>Nog niet geteld</i>: ${r.repaired.map(esc).join(', ')}. Lees daarna de verkoophistorie opnieuw in.` : ''}${eanNote(r, shopInfo(importShop()))}`;
       });
     } else if (button.dataset.import === 'packs-suggest') {
       runImport(button, async () => {
@@ -1144,7 +1167,7 @@ function bindUserMenu() {
           ? `<br><b>${r.unmatched.length} aanbieding(en) zonder product in deze webshop.</b> Is het een set of een product zonder EAN in de webshop? Klik op <i>Koppelen</i> en kies welk product er per verkoop af gaat (en hoeveel). Staat het alleen op Bol.com, dan kunt u het laten staan.
             <div class="bol-unmatched">${r.unmatched.map((o, i) => `<div class="bol-offer" data-offer-row="${i}">
               <div><b>${esc(o.title ?? 'Titel onbekend')}</b><div class="muted small">EAN ${esc(o.ean ?? '–')}${o.reference ? ` · referentie ${esc(o.reference)}` : ''}${o.stock !== null ? ` · voorraad Bol ${o.stock}` : ''}${o.packSize ? ` · set van ${o.packSize}?` : ''}</div></div>
-              <button type="button" data-bol-link="${i}">Koppelen</button>
+              <span class="actions" style="flex:none;gap:6px">${o.suggestion ? `<button type="button" class="primary" data-bol-quick="${i}" title="EAN en Bol-aanbieding van deze aanbieding overnemen in dit webshopproduct">Koppelen aan: ${esc(o.suggestion.name)}</button>` : ''}<button type="button" data-bol-link="${i}">${o.suggestion ? 'Anders…' : 'Koppelen'}</button></span>
             </div>`).join('')}</div>`
           : '';
         return `Bol.com: ${r.offers} aanbiedingen gevonden. ${r.linked} nieuw gekoppeld, ${r.alreadyLinked} waren al gekoppeld${r.fbb ? `, ${r.fbb} FBB-aanbieding(en) overgeslagen` : ''}${r.otherShop ? `, ${r.otherShop} horen bij ${r.otherShops.map(esc).join(' en ')} (zelfde Bol.com-account)` : ''}.${missing}`;

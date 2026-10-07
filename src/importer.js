@@ -96,6 +96,34 @@ export function packSizeFromTitle(title) {
   return n && n > 1 ? n : null;
 }
 
+const STOP_WORDS = new Set(['de', 'het', 'een', 'en', 'van', 'voor', 'met', 'zonder', 'in', 'op', 'cm', 'stuk', 'stuks', 'the', 'and', 'for']);
+const tokens = (text) => new Set(String(text ?? '').toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+  .split(/[^a-z0-9]+/).filter((t) => t && !STOP_WORDS.has(t)));
+
+/**
+ * The webshop product whose name best matches a Bol.com title (shared words such as
+ * colour, size and dimensions). Only a suggestion: the user confirms it. Requires a clear
+ * winner, so "Roze L" is not suggested for "Roze XL".
+ */
+export function bestMatch(title, products) {
+  const t = tokens(title);
+  if (t.size < 2) return null;
+  const scored = products.map((p) => {
+    // The variation options (after " – ", e.g. "Roze, XL") must all be in the title.
+    const at = p.name.lastIndexOf(' – ');
+    const options = at >= 0 ? tokens(p.name.slice(at + 3)) : new Set();
+    if ([...options].some((w) => !t.has(w))) return null;
+    const n = tokens(p.name);
+    let shared = 0;
+    for (const w of n) if (t.has(w)) shared++;
+    const missing = [...n].filter((w) => !t.has(w)).length; // words in the product name not in the title
+    if (!options.size && missing > 1) return null;
+    return { p, score: shared - missing * 0.5, shared };
+  }).filter((x) => x && x.shared >= 2).sort((a, b) => b.score - a.score);
+  if (!scored.length || (scored[1] && scored[1].score >= scored[0].score)) return null;
+  return scored[0].p;
+}
+
 async function describeOffers(bol, offers) {
   if (typeof bol.productTitle !== 'function') return;
   for (let i = 0; i < offers.length; i += 4) {
@@ -160,8 +188,18 @@ export async function linkBolOffers(inventory, bol, { userName = null } = {}) {
       result.unmatched.push({ offerId: o.offerId, ean: o.ean, reference: o.reference, stock: Number.isFinite(o.stock) ? o.stock : null });
     }
   }
-  // Titles help to recognise what an unlinked offer is (e.g. "… – set van 4").
+  // Titles help to recognise what an unlinked offer is (e.g. "… – set van 4"), and to
+  // suggest the webshop product it probably is (when the EAN is missing in the webshop).
   await describeOffers(bol, result.unmatched.slice(0, 150));
+  const candidates = inventory.listProducts().filter((p) => !p.bol_offer_id && !p.ean);
+  const taken = new Set();
+  for (const o of result.unmatched) {
+    const best = o.packSize ? null : bestMatch(o.title, candidates.filter((p) => !taken.has(p.sku)));
+    if (best) {
+      o.suggestion = { sku: best.sku, name: best.name };
+      taken.add(best.sku);
+    }
+  }
   return result;
 }
 
@@ -231,7 +269,7 @@ function repairMergedVariations(inventory, items, { userName }) {
  * start with the current webshop stock; existing products keep their stock.
  */
 export async function importFromWooCommerce(inventory, woo, { userName = null } = {}) {
-  const result = { created: 0, updated: 0, skipped: [], uncounted: 0, listings: 0, generatedSkus: 0, repaired: [] };
+  const result = { created: 0, updated: 0, skipped: [], uncounted: 0, listings: 0, generatedSkus: 0, repaired: [], withEan: 0, withoutEan: [], fieldsWithoutEan: [] };
   const items = await woo.listProducts();
   assignUniqueSkus(items);
   result.repaired = repairMergedVariations(inventory, items, { userName });
@@ -264,6 +302,12 @@ export async function importFromWooCommerce(inventory, woo, { userName = null } 
       ...(exists ? {} : { stock: p.stock ?? 0, stock_confirmed: p.stock !== null && p.stock !== undefined }),
     }, { userName });
     if (!exists && (p.stock === null || p.stock === undefined)) result.uncounted++;
+    // Without an EAN a product can only be linked to Bol.com by hand.
+    if (inventory.getProduct(p.sku)?.ean) result.withEan++;
+    else {
+      result.withoutEan.push(p.name);
+      for (const f of p.fields ?? []) if (!result.fieldsWithoutEan.includes(f) && result.fieldsWithoutEan.length < 25) result.fieldsWithoutEan.push(f);
+    }
     if (exists) result.updated++;
     else result.created++;
   }

@@ -353,10 +353,11 @@ function bolSetLines(p, s) {
 function backfillSummary(r) {
   const parts = Object.entries(r.orderLines ?? {}).map(([c, x]) => {
     const name = `<b>${CHANNELS[c] ?? c}</b> (${r.channelDays?.[c] ?? r.days} dagen)`;
-    if (x.error) return `${name}: <span style="color:var(--critical-ink)">mislukt – ${esc(x.error)}</span>`;
+    if (x.error && x.lines === undefined) return `${name}: <span style="color:var(--critical-ink)">mislukt – ${esc(x.error)}</span>`;
     if (x.lines === undefined) return `${name}: ${x.booked} nieuwe orderregels`;
     const known = x.lines - x.otherShop - x.unknown;
-    return `${name}: ${x.orders} orders met ${x.lines} orderregels gevonden.<br>– ${x.booked} nieuw ingelezen, ${Math.max(0, known - x.booked)} stonden er al in${x.otherShop ? `, ${x.otherShop} van een andere webshop op hetzelfde Bol.com-account` : ''}${x.unknown ? `, <b>${x.unknown} van producten die niet gekoppeld zijn</b> (EAN ${x.unknownEans.map(esc).join(', ')}${x.unknown > x.unknownEans.length ? ', …' : ''})` : ''}.`;
+    const stopped = x.error ? `<br><span style="color:var(--critical-ink)">Niet helemaal gelukt (${x.days} dagen ingelezen) – ${esc(x.error)}. Klik later nog eens op Verkoophistorie inlezen; wat al binnen is, wordt niet dubbel geteld.</span>` : '';
+    return `${name}: ${x.orders} orders met ${x.lines} orderregels gevonden.${stopped}<br>– ${x.booked} nieuw ingelezen, ${Math.max(0, known - x.booked)} stonden er al in${x.otherShop ? `, ${x.otherShop} van een andere webshop op hetzelfde Bol.com-account` : ''}${x.unknown ? `, <b>${x.unknown} van producten die niet gekoppeld zijn</b> (EAN ${x.unknownEans.map(esc).join(', ')}${x.unknown > x.unknownEans.length ? ', …' : ''})` : ''}.`;
   });
   return `Verkoophistorie ingelezen.<br>${parts.join('<br>')}${r.channelDays?.bol < r.days ? '<br>Bol.com geeft maximaal de laatste 3 maanden vrij.' : ''}`;
 }

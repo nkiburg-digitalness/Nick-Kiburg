@@ -9,7 +9,7 @@ import { setKv } from '../src/db.js';
 import { config } from '../src/config.js';
 import { setup, mockFetch } from './helpers.js';
 
-const bolConfig = { ...config.bol, clientId: 'id', clientSecret: 'secret', fulfilmentMethod: 'FBR' };
+const bolConfig = { ...config.bol, clientId: 'id', clientSecret: 'secret', fulfilmentMethod: 'FBR', historyPaceMs: 0 };
 const wooConfig = { ...config.woo, baseUrl: 'https://shop.test', consumerKey: 'ck', consumerSecret: 'cs', webhookSecret: 'whsec' };
 
 function bolOrder(id, items) {
@@ -436,4 +436,36 @@ test('Bol: a rate limit (429) is waited out and retried', async () => {
   const bol = new BolChannel({ config: { ...bolConfig, retryScale: 0.001 }, db, bus: inventory.bus, fetchImpl });
   assert.deepEqual(await bol.listOrders({ status: 'ALL' }), []);
   assert.equal(tries, 3);
+});
+
+test('Bol history: waits as long as Bol.com says, and keeps what was read when it keeps refusing', async () => {
+  const { db, inventory } = setup();
+  inventory.upsertProduct({ sku: 'A', name: 'A', ean: '8720000000001', stock: 5 });
+  const now = new Date('2026-10-07T12:00:00Z');
+  let calls = 0;
+  let refusals = 0;
+  const { fetchImpl } = mockFetch([
+    ['POST', /token/, () => ({ body: { access_token: 't', expires_in: 299 } })],
+    ['GET', /\/retailer\/orders\?/, (url) => {
+      calls++;
+      const day = new URL(url).searchParams.get('latest-change-date');
+      if (day === '2026-07-10') return { body: { orders: [{ ...bolOrder(`D-${day}`, [[`i-${day}`, '8720000000001', 1]]), orderPlacedDateTime: `${day}T10:00:00Z` }] } };
+      if (day === '2026-07-11' && ++refusals <= 2) return { status: 429, body: { detail: 'Too many requests, retry in 13 seconds.' } };
+      if (day >= '2026-07-12') return { status: 429, body: { detail: 'Too many requests, retry in 13 seconds.' } };
+      return { body: { orders: [] } };
+    }],
+  ]);
+  const waits = [];
+  const realSetTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = (fn, ms, ...rest) => { if (ms >= 1000) waits.push(ms); return realSetTimeout(fn, 0, ...rest); };
+  try {
+    const bol = new BolChannel({ config: bolConfig, db, bus: inventory.bus, fetchImpl });
+    const r = await bol.backfill(inventory, 90, now);
+    assert.ok(waits.includes(14000), 'waited the 13 s Bol.com asked for, plus 1 s');
+    assert.equal(r.booked, 1, 'the day read before the refusal is kept');
+    assert.match(r.error, /gestopt bij 2026-07-12/, 'a refused day is retried; it stops only when Bol.com keeps refusing');
+    assert.equal(r.days, 2);
+  } finally {
+    globalThis.setTimeout = realSetTimeout;
+  }
 });

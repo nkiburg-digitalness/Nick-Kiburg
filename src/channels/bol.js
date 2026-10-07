@@ -45,7 +45,7 @@ export class BolChannel {
     return this.token;
   }
 
-  async #api(path, { method = 'GET', body, accept = this.mediaType, language } = {}) {
+  async #api(path, { method = 'GET', body, accept = this.mediaType, language, maxAttempts = 4 } = {}) {
     const token = await this.#accessToken();
     const headers = { Authorization: `Bearer ${token}`, Accept: accept };
     if (language) headers['Accept-Language'] = language;
@@ -55,9 +55,12 @@ export class BolChannel {
         return (await requestJson(`${this.config.apiBase}${path}`, { method, headers, body, fetchImpl: this.fetchImpl })).data;
       } catch (err) {
         if (err.status === 401) this.token = null; // force a fresh token next time
-        // Too many requests: Bol.com says how long to wait. Wait (briefly) and try again.
-        if (err.status === 429 && attempt < 4) {
-          const waitMs = Math.min(15, Math.max(1, err.retryAfterSeconds ?? attempt * 2)) * 1000 * (this.config.retryScale ?? 1);
+        // Too many requests: Bol.com says how long to wait (header, or "retry in 13 seconds"
+        // in the message). Wait that long, plus a little, and try again.
+        if (err.status === 429 && attempt < maxAttempts) {
+          const said = err.retryAfterSeconds ?? Number((String(err.message).match(/retry in (\d+) sec/i) ?? [])[1]);
+          const seconds = Number.isFinite(said) && said > 0 ? said + 1 : attempt * 5;
+          const waitMs = Math.min(90, seconds) * 1000 * (this.config.retryScale ?? 1);
           await new Promise((resolve) => setTimeout(resolve, waitMs));
           continue;
         }
@@ -158,11 +161,11 @@ export class BolChannel {
   }
 
   /** Fetch all pages of GET /retailer/orders for the given query. */
-  async listOrders(query) {
+  async listOrders(query, { maxAttempts } = {}) {
     const orders = [];
     for (let page = 1; page <= 100; page++) {
       const params = new URLSearchParams({ ...query, 'fulfilment-method': this.config.fulfilmentMethod, page: String(page) });
-      const data = await this.#api(`/retailer/orders?${params}`);
+      const data = await this.#api(`/retailer/orders?${params}`, { maxAttempts });
       const batch = data?.orders ?? [];
       orders.push(...batch);
       if (batch.length < 50) break;
@@ -194,15 +197,31 @@ export class BolChannel {
   }
 
   /** Import historical orders (up to 3 months) for the forecast without touching stock. */
+  /**
+   * Import order history (no stock effect). Bol.com rate-limits the order list, so the
+   * days are requested at a calm pace, a "too many requests" is waited out, and each
+   * day is booked right away: if Bol.com keeps refusing, what was read stays.
+   */
   async backfill(inventory, days = 90, now = new Date()) {
-    const orders = [];
     const dayList = daysBetween(new Date(now.getTime() - days * DAY_MS), now, BOL_HISTORY_DAYS);
+    const stats = { orders: 0, lines: 0, otherShop: 0, unknown: 0, unknownEans: [] };
+    const seenOrders = new Set();
+    let booked = 0;
+    let daysRead = 0;
     for (const day of dayList) {
-      orders.push(...await this.listOrders({ status: 'ALL', 'latest-change-date': day }));
+      let orders;
+      try {
+        orders = await this.listOrders({ status: 'ALL', 'latest-change-date': day }, { maxAttempts: 10 });
+      } catch (err) {
+        return { booked, days: daysRead, ...stats, error: `gestopt bij ${day}: ${err.message}` };
+      }
+      orders = orders.filter((o) => !seenOrders.has(o.orderId) && seenOrders.add(o.orderId));
+      stats.orders += orders.length;
+      booked += await this.bookOrders(inventory, orders, { applyToStock: false, stats });
+      daysRead++;
+      await new Promise((resolve) => setTimeout(resolve, this.config.historyPaceMs ?? 1200));
     }
-    const stats = { orders: new Set(orders.map((o) => o.orderId)).size, lines: 0, otherShop: 0, unknown: 0, unknownEans: [] };
-    const booked = await this.bookOrders(inventory, orders, { applyToStock: false, stats });
-    return { booked, days: dayList.length, ...stats };
+    return { booked, days: daysRead, ...stats };
   }
 
   async bookOrders(inventory, orders, { applyToStock, stats = null } = {}) {

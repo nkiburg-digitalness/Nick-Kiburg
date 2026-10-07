@@ -381,7 +381,8 @@ export function createHttpServer(app) {
             const r = await channel.backfill(rt.inventory, days);
             job.orderLines[name] = typeof r === 'number' ? { booked: r } : r;
             const x = job.orderLines[name];
-            rt.bus.log('info', x.lines === undefined
+            if (x.error) rt.bus.log('error', `Verkoophistorie ${label} niet helemaal ingelezen (${x.days} dagen gelukt, ${x.booked} nieuwe orderregels): ${x.error}`, { channel: name });
+            else rt.bus.log('info', x.lines === undefined
               ? `Verkoophistorie ${label}: ${x.booked} nieuwe orderregels`
               : `Verkoophistorie ${label}: ${x.orders} orders, ${x.lines} orderregels – ${x.booked} nieuw, ${x.otherShop} van een andere webshop, ${x.unknown} van niet-gekoppelde producten`, { channel: name });
           } catch (err) {

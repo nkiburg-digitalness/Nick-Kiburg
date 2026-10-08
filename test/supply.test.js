@@ -107,3 +107,24 @@ test('Link overview shows dropshipping and samples', async () => {
   assert.equal(by('WP')['Let op'], 'Tijdelijk niet leverbaar', 'no "Nog niet geteld" for dropshipping');
   assert.equal(by('S')['Bestaat uit'], 'Sample uit Plaktegel – Per tegel (4 per stuk); 1 los, 41 te verkopen');
 });
+
+test('Tile with box of 10 and 3 samples per tile: every sale updates all variations', () => {
+  const { inventory } = setup({ channels: ['woocommerce'] });
+  inventory.upsertProduct({ sku: 'TEGEL', name: 'Plaktegel – Per tegel', woo_product_id: 1, woo_variation_id: 11, stock: 100 });
+  const doos = inventory.saveListing({ name: 'Plaktegel – Per doos van 10 tegels', woo_product_id: 1, woo_variation_id: 12, components: [{ item_sku: 'TEGEL', quantity: 10 }] });
+  inventory.upsertProduct({ sku: 'SAMPLE', name: 'Plaktegel – Sample bestellen', woo_product_id: 1, woo_variation_id: 13, stock: 0, cut_from: 'TEGEL', cut_yield: 3 });
+  const view = () => {
+    const tegels = inventory.getProduct('TEGEL').stock;
+    const sample = inventory.getProduct('SAMPLE');
+    return [tegels, inventory.availableFor(inventory.getListing(doos.id)).quantity, sample.stock, inventory.availableStock(sample).quantity];
+  };
+  assert.deepEqual(view(), [100, 10, 0, 300]);
+  inventory.recordSale({ channel: 'woocommerce', lineRef: 'o1', sku: 'TEGEL', quantity: 10 });
+  assert.deepEqual(view(), [90, 9, 0, 270], '10 tiles sold: one box less');
+  inventory.recordListingSale({ channel: 'woocommerce', lineRef: 'o2', listing: inventory.getListing(doos.id), quantity: 1 });
+  assert.deepEqual(view(), [80, 8, 0, 240], 'a box takes 10 tiles');
+  inventory.recordSale({ channel: 'woocommerce', lineRef: 'o3', sku: 'SAMPLE', quantity: 1 });
+  assert.deepEqual(view(), [79, 7, 2, 239], 'a sample cuts one tile; 2 leftovers');
+  inventory.recordSale({ channel: 'woocommerce', lineRef: 'o4', sku: 'SAMPLE', quantity: 2 });
+  assert.deepEqual(view(), [79, 7, 0, 237], 'next samples come from the leftovers');
+});

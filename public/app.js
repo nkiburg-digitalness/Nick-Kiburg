@@ -650,6 +650,7 @@ async function renderDetail({ shop, sku }, { keepScroll = false } = {}) {
         </div>`;
         }).join('')}
       </div>
+      ${p.samples?.length ? '<p class="muted small" style="margin:0">Samples per stuk en losse restjes past u hierboven aan, bij de sample.</p>' : ''}
       <div class="actions" data-min-role="beheerder" style="justify-content:flex-start">
         <button data-action="add-listing">+ Verkoopartikel toevoegen</button>
         ${p.woo_product_id || p.bol_offer_id ? '<button data-action="convert">Dit is een verpakking/pakket van een ander artikel…</button>' : ''}
@@ -681,9 +682,9 @@ async function renderDetail({ shop, sku }, { keepScroll = false } = {}) {
         <label>WooCommerce variatie-ID<input name="woo_variation_id" value="${esc(p.woo_variation_id ?? '')}"></label>
         ${shopHasBol ? `<label class="span-2">Bol.com offer-ID<input name="bol_offer_id" value="${esc(p.bol_offer_id ?? '')}"></label>` : ''}
         <label>Levering<select name="supply"><option value="stock" ${p.supply !== 'dropship' ? 'selected' : ''}>Eigen voorraad</option><option value="dropship" ${p.supply === 'dropship' ? 'selected' : ''}>Dropshipping (leverancier)</option></select></label>
-        <label style="flex-direction:row;align-items:center;gap:8px;align-self:end"><input type="checkbox" name="unavailable" ${p.supply === 'dropship' && !p.available ? 'checked' : ''} ${p.supply === 'dropship' ? '' : 'disabled'}> Tijdelijk niet leverbaar</label>
-        <label>Sample van<select name="cut_from"><option value="">– geen (los artikel) –</option>${state.data.products.filter((x) => x.shop === shop && x.sku !== p.sku && !x.cut_from && x.supply !== 'dropship').map((x) => `<option value="${esc(x.sku)}" ${x.sku === p.cut_from ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>
-        <label>Samples per stuk<input name="cut_yield" type="number" min="1" max="50" value="${p.cut_yield ?? 4}" title="Hoeveel samples er uit één stuk (bijv. één tegel) gesneden worden"></label>
+        <label data-show="dropship" style="flex-direction:row;align-items:center;gap:8px;align-self:end" ${p.supply === 'dropship' ? '' : 'hidden'}><input type="checkbox" name="unavailable" ${p.supply === 'dropship' && !p.available ? 'checked' : ''}> Tijdelijk niet leverbaar</label>
+        ${p.samples?.length || listings.length ? '' : `<label title="Alleen invullen als dit product zelf een sample is dat uit een ander product gesneden wordt">Dit is een sample van<select name="cut_from"><option value="">– nee, geen sample –</option>${state.data.products.filter((x) => x.shop === shop && x.sku !== p.sku && !x.cut_from && x.supply !== 'dropship').map((x) => `<option value="${esc(x.sku)}" ${x.sku === p.cut_from ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>
+        <label data-show="sample" ${p.cut_from ? '' : 'hidden'}>Samples per stuk<input name="cut_yield" type="number" min="1" max="50" value="${p.cut_yield ?? ''}" placeholder="bijv. 3" title="Hoeveel samples er uit één stuk (bijv. één tegel) gesneden worden"></label>`}
         <div class="actions span-2"><button type="button" class="danger" data-action="delete" data-min-role="beheerder">Product verwijderen</button><button class="primary">Opslaan</button></div>
       </div>
     </form>
@@ -1021,6 +1022,16 @@ function bindUi() {
   detail.addEventListener('close', () => {
     state.open = null;
     hideTooltip();
+  });
+  // Productinstellingen: show only the fields that apply.
+  detail.addEventListener('change', (e) => {
+    const form = e.target.closest('form[data-form="settings"]');
+    if (!form) return;
+    if (e.target.name === 'supply') $('[data-show="dropship"]', form).hidden = e.target.value !== 'dropship';
+    if (e.target.name === 'cut_from') {
+      const yieldField = $('[data-show="sample"]', form);
+      if (yieldField) yieldField.hidden = !e.target.value;
+    }
   });
   detail.addEventListener('submit', async (e) => {
     e.preventDefault();

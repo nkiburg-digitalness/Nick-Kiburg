@@ -10,7 +10,7 @@ import { getKv, setKv } from './db.js';
 import { linkReport, reportToCsv } from './report.js';
 import { startHistoryImport } from './history.js';
 import { SHOP_COLORS } from './shops.js';
-import { suggestPacks, applyPacks } from './packs.js';
+import { suggestPacks, applyPacks, SAMPLE_PATTERN } from './packs.js';
 import { parseCsv, productsToCsv, importRows, importFromWooCommerce, linkBolOffers } from './importer.js';
 
 const PUBLIC_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'public');
@@ -223,7 +223,8 @@ export function createHttpServer(app) {
         channels: channelStatus(rt),
         summary: {
           products: items.length,
-          stock: items.reduce((n, p) => n + Math.max(0, p.stock), 0),
+          stock: items.reduce((n, p) => n + (p.supply === 'dropship' ? 0 : Math.max(0, p.stock)), 0),
+          dropship: items.filter((p) => p.supply === 'dropship').length,
           soldToday,
           warning: items.filter((p) => p.forecast.status === 'warning').length,
           critical: items.filter((p) => p.forecast.status === 'critical').length,
@@ -231,7 +232,7 @@ export function createHttpServer(app) {
           uncounted: items.filter((p) => p.forecast.status === 'uncounted').length,
         },
       });
-      if (selected === 'all') products.push(...items.filter((p) => p.forecast.status !== 'ok'));
+      if (selected === 'all') products.push(...items.filter((p) => !['ok', 'dropship'].includes(p.forecast.status)));
       else if (selected === rt.id) products = items;
     }
     if (selected !== 'all' && !list.some((rt) => rt.id === selected)) shopFor(user, selected);
@@ -327,10 +328,15 @@ export function createHttpServer(app) {
       send(res, 200, rt.wooCatalog.items);
     }, { shop: true }],
 
+    ['GET', new RegExp(`^${SHOP}/dropship$`), 'beheerder', ({ res, rt }) => send(res, 200, rt.inventory.categories()), { shop: true }],
+    ['POST', new RegExp(`^${SHOP}/dropship$`), 'beheerder', async ({ req, res, user, rt }) => {
+      const { categories } = await readJson(req);
+      send(res, 200, rt.inventory.setDropshipCategories(Array.isArray(categories) ? categories.map(String) : [], { samplePattern: SAMPLE_PATTERN, userName: user.name }));
+    }, { shop: true }],
     ['GET', new RegExp(`^${SHOP}/packs$`), 'beheerder', ({ res, rt }) => send(res, 200, suggestPacks(rt.inventory)), { shop: true }],
     ['POST', new RegExp(`^${SHOP}/packs$`), 'beheerder', async ({ req, res, user, rt }) => {
-      const { keys } = await readJson(req);
-      const result = applyPacks(rt.inventory, Array.isArray(keys) ? keys : [], { userName: user.name });
+      const { keys, yields } = await readJson(req);
+      const result = applyPacks(rt.inventory, Array.isArray(keys) ? keys : [], { userName: user.name, yields: yields && typeof yields === 'object' ? yields : {} });
       rt.bus.log('info', `Verpakkingen/meters ingesteld door ${user.name}: ${result.groups} groep(en), ${result.listings} verkoopartikelen, ${result.newItems} nieuwe voorraadartikelen`);
       send(res, 200, result);
     }, { shop: true }],

@@ -168,12 +168,16 @@ export function forecastAll(db, { windowDays = 30, minTrackedDays = 7, coverDays
     pending.get(row.sku)[row.channel] = { attempts: row.attempts, lastError: row.last_error };
   }
 
+  const bySku = new Map(products.map((p) => [p.sku, p]));
   return products.map((p) => {
     const { sold, soldByChannel, outOfStock } = daily.get(p.sku);
+    // Samples cut from another item: what can be sold = loose samples + what can be cut.
+    const parent = p.cut_from ? bySku.get(p.cut_from) : null;
+    const sellable = parent ? Math.max(0, p.stock) + Math.max(0, parent.stock) * (p.cut_yield ?? 1) : p.stock;
     const first = new Date(firstSeen.get(p.sku) ?? p.created_at);
     const trackedDays = Math.floor((now.getTime() - first.getTime()) / DAY_MS) + 1;
     const forecast = computeForecast({
-      stock: p.stock,
+      stock: sellable,
       dailySales: sold,
       outOfStockDays: outOfStock,
       trackedDays,
@@ -183,12 +187,16 @@ export function forecastAll(db, { windowDays = 30, minTrackedDays = 7, coverDays
       coverDays,
       now,
     });
-    if (!p.stock_confirmed) {
+    if (p.supply === 'dropship') {
+      // The supplier delivers: no own stock, no sell-out prediction.
+      Object.assign(forecast, { status: 'dropship', daysLeft: null, soldOutDate: null, orderByDate: null, orderAdvice: 0 });
+    } else if (!p.stock_confirmed || (parent && !parent.stock_confirmed)) {
       // Stock unknown (never counted): no sell-out prediction possible yet.
       Object.assign(forecast, { status: 'uncounted', daysLeft: null, soldOutDate: null, orderByDate: null, orderAdvice: 0 });
     }
     return {
       ...p,
+      sellable,
       forecast,
       salesPerDay: sold,
       channelSplit: Object.fromEntries(Object.entries(soldByChannel).map(([c, v]) => [c, sum(v)])),

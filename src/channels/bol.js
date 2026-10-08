@@ -160,6 +160,12 @@ export class BolChannel {
     }
   }
 
+  /** Dropshipping on Bol.com: the maximum when available, otherwise 0. */
+  async pushAvailability(product, available) {
+    await this.pushStock(product, available ? this.config.maxStock : 0);
+    return available ? 1 : 0;
+  }
+
   /** Fetch all pages of GET /retailer/orders for the given query. */
   async listOrders(query, { maxAttempts } = {}) {
     const orders = [];

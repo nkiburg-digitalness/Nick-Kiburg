@@ -299,6 +299,7 @@ export async function importFromWooCommerce(inventory, woo, { userName = null } 
       name: exists?.name ?? p.name,
       woo_product_id: p.woo_product_id,
       woo_variation_id: p.woo_variation_id,
+      ...(p.category ? { category: p.category } : {}),
       ...(ean ? { ean } : {}),
       // Without "manage stock" WooCommerce has no quantity: the stock is unknown, not 0.
       ...(exists ? {} : { stock: p.stock ?? 0, stock_confirmed: p.stock !== null && p.stock !== undefined }),

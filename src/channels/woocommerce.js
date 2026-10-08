@@ -51,6 +51,19 @@ export class WooCommerceChannel {
     return stock;
   }
 
+  /**
+   * Dropshipping: no stock count in the webshop, only "in stock" / "out of stock".
+   * Returns the pushed state as a number for the dashboard (1 = leverbaar, 0 = niet).
+   */
+  async pushAvailability(product, available) {
+    if (!product.woo_product_id) throw new SkipSync('geen WooCommerce product-ID gekoppeld');
+    const path = product.woo_variation_id
+      ? `/products/${product.woo_product_id}/variations/${product.woo_variation_id}`
+      : `/products/${product.woo_product_id}`;
+    await this.#api(path, { method: 'PUT', body: { manage_stock: false, stock_status: available ? 'instock' : 'outofstock' } });
+    return available ? 1 : 0;
+  }
+
   /** Verify the X-WC-Webhook-Signature header (base64 HMAC-SHA256 of the raw body). */
   verifySignature(rawBody, signature) {
     if (!this.config.webhookSecret || !signature) return false;
@@ -171,7 +184,7 @@ export class WooCommerceChannel {
               const options = (v.attributes ?? []).map((a) => a.option).filter(Boolean);
               // Note: a variation without its own SKU reports the SKU of its parent product.
               result.push({
-                woo_product_id: p.id, woo_variation_id: v.id, sku: v.sku, parent_sku: p.sku || '', options,
+                woo_product_id: p.id, woo_variation_id: v.id, sku: v.sku, parent_sku: p.sku || '', options, category: p.categories?.[0]?.name ?? null,
                 name: `${p.name} – ${options.join(', ')}`, stock: v.manage_stock === true ? v.stock_quantity : null, ean: eanOf(v),
                 fields: eanOf(v) ? undefined : fieldNames(v),
               });
@@ -180,7 +193,7 @@ export class WooCommerceChannel {
             if (vpage >= vpages || !variations?.length) break;
           }
         } else {
-          result.push({ woo_product_id: p.id, woo_variation_id: null, sku: p.sku, parent_sku: '', options: [], name: p.name, stock: p.manage_stock ? p.stock_quantity : null, ean: eanOf(p), fields: eanOf(p) ? undefined : fieldNames(p) });
+          result.push({ woo_product_id: p.id, woo_variation_id: null, sku: p.sku, parent_sku: '', options: [], category: p.categories?.[0]?.name ?? null, name: p.name, stock: p.manage_stock ? p.stock_quantity : null, ean: eanOf(p), fields: eanOf(p) ? undefined : fieldNames(p) });
         }
       }
       const totalPages = Number.parseInt(headers.get('x-wp-totalpages') ?? '1', 10);

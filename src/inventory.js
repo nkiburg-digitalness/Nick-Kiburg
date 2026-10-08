@@ -8,7 +8,32 @@ export const CHANNEL_LABELS = {
 
 const PRODUCT_FIELDS = [
   'name', 'ean', 'unit', 'lead_time_days', 'safety_days', 'woo_product_id', 'woo_variation_id', 'bol_offer_id',
+  'supply', 'available', 'category', 'cut_from', 'cut_yield',
 ];
+
+/** Normalise the supply / sample fields of a product update. */
+function supplyFields(input, sku, inventory) {
+  const out = { ...input };
+  if ('supply' in out) out.supply = out.supply === 'dropship' ? 'dropship' : 'stock';
+  if ('available' in out) out.available = out.available === false || out.available === 0 || out.available === '0' ? 0 : 1;
+  if ('cut_from' in out || 'cut_yield' in out) {
+    const from = String(out.cut_from ?? '').trim();
+    if (!from) {
+      out.cut_from = null;
+      out.cut_yield = null;
+    } else {
+      const k = Number.parseInt(out.cut_yield, 10);
+      if (!Number.isInteger(k) || k < 1) throw new ValidationError('Vul in hoeveel samples er uit één stuk gaan (1 of meer)');
+      if (from === sku) throw new ValidationError('Een artikel kan geen sample van zichzelf zijn');
+      const parent = inventory.getProduct(from);
+      if (!parent) throw new ValidationError(`Onbekend voorraadartikel ${from}`);
+      if (parent.cut_from) throw new ValidationError(`${parent.name} is zelf al een sample`);
+      out.cut_from = from;
+      out.cut_yield = k;
+    }
+  }
+  return out;
+}
 
 function by(userName) {
   return userName ? ` (door ${userName})` : '';
@@ -83,6 +108,7 @@ export class Inventory {
   upsertProduct(input, { userName = null } = {}) {
     const sku = String(input.sku ?? '').trim();
     if (!sku) throw new ValidationError('SKU is verplicht');
+    input = supplyFields(input, sku, this);
     const existing = this.getProduct(sku);
 
     if (!existing) {
@@ -92,13 +118,15 @@ export class Inventory {
       const confirmed = input.stock_confirmed === false ? 0 : 1;
       transaction(this.db, () => {
         this.db.prepare(`
-          INSERT INTO products (sku, name, ean, unit, stock, lead_time_days, safety_days, woo_product_id, woo_variation_id, bol_offer_id, stock_confirmed)
-          VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)
+          INSERT INTO products (sku, name, ean, unit, stock, lead_time_days, safety_days, woo_product_id, woo_variation_id, bol_offer_id, stock_confirmed,
+                                supply, available, category, cut_from, cut_yield)
+          VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           sku, input.name, emptyToNull(input.ean), String(input.unit || 'stuks').trim() || 'stuks',
           input.lead_time_days ?? 14, input.safety_days ?? 7,
           emptyToNull(input.woo_product_id), emptyToNull(input.woo_variation_id), emptyToNull(input.bol_offer_id),
-          confirmed,
+          confirmed, input.supply ?? 'stock', input.available ?? 1, emptyToNull(input.category),
+          emptyToNull(input.cut_from), emptyToNull(input.cut_yield),
         );
         if (stock !== 0) this.#move({ sku, delta: stock, type: 'correction', channel: 'manual', note: 'Beginvoorraad', userName });
       });
@@ -117,7 +145,7 @@ export class Inventory {
         this.db.prepare(`UPDATE products SET ${sets.join(', ')}, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE sku = ?`)
           .run(...values, sku);
         // A new channel link means that channel should receive the current stock.
-        if (['woo_product_id', 'woo_variation_id', 'bol_offer_id'].some((f) => f in input && input[f] !== existing[f])) {
+        if (['woo_product_id', 'woo_variation_id', 'bol_offer_id', 'supply', 'available', 'cut_from', 'cut_yield'].some((f) => f in input && input[f] !== existing[f])) {
           this.enqueueSync(sku);
         }
       }
@@ -164,6 +192,67 @@ export class Inventory {
     return [...orphans, ...products];
   }
 
+  /**
+   * Loose samples ran out (stock below 0): cut as many pieces of the parent item as
+   * needed (e.g. 1 tile → 4 samples), as long as the parent has stock. Runs inside the
+   * sale's transaction. Returns what was cut, or null.
+   */
+  #cutSamples(sku) {
+    const item = this.getProduct(sku);
+    if (!item?.cut_from || !(item.cut_yield >= 1) || item.stock >= 0) return null;
+    const parent = this.getProduct(item.cut_from);
+    if (!parent || parent.stock <= 0) return null;
+    const pieces = Math.min(Math.ceil(-item.stock / item.cut_yield), parent.stock);
+    const samples = pieces * item.cut_yield;
+    const note = `${pieces} × versneden tot ${samples} samples`;
+    this.#move({ sku: parent.sku, delta: -pieces, type: 'correction', channel: 'manual', note: `${note} (${item.name})` });
+    this.#move({ sku, delta: samples, type: 'correction', channel: 'manual', note: `${note} uit ${parent.name}` });
+    return { parent, pieces, samples };
+  }
+
+  /**
+   * What can be sold of a product right now. For samples: the loose samples plus what
+   * can still be cut from the parent item. `known` is false while a stock is uncounted.
+   */
+  availableStock(product) {
+    if (!product.cut_from) return { quantity: Math.max(0, product.stock), known: Boolean(product.stock_confirmed) };
+    const parent = this.getProduct(product.cut_from);
+    const fromParent = parent ? Math.max(0, parent.stock) * (product.cut_yield ?? 1) : 0;
+    return {
+      quantity: Math.max(0, product.stock) + fromParent,
+      known: Boolean(product.stock_confirmed) && (!parent || Boolean(parent.stock_confirmed)),
+    };
+  }
+
+  /** Webshop categories with their number of products and how many are dropshipped. */
+  categories() {
+    return this.db.prepare(`
+      SELECT category, COUNT(*) AS products, SUM(supply = 'dropship') AS dropship FROM products
+      WHERE category IS NOT NULL AND category <> '' GROUP BY category ORDER BY category COLLATE NOCASE
+    `).all();
+  }
+
+  /**
+   * Dropshipping per category: products in the given categories are delivered by the
+   * supplier (always "in stock"), except sample variations (kept in stock). Products in
+   * other categories go back to own stock.
+   */
+  setDropshipCategories(categories, { samplePattern, userName = null } = {}) {
+    const wanted = new Set(categories);
+    let changed = 0;
+    for (const p of this.listProducts()) {
+      if (!p.category) continue;
+      const isSample = samplePattern?.test(p.name.slice(p.name.lastIndexOf(' – ') + 1)) ?? false;
+      const supply = wanted.has(p.category) && !isSample ? 'dropship' : 'stock';
+      if (supply === p.supply) continue;
+      if (supply === 'dropship' && this.listingsUsing(p.sku).length) continue; // used in packs: keep own stock
+      this.upsertProduct({ sku: p.sku, supply }, { userName });
+      changed++;
+    }
+    this.bus.log('info', `Dropshipping ingesteld voor ${[...wanted].join(', ') || 'geen categorieën'}: ${changed} product(en) aangepast${by(userName)}`);
+    return { changed };
+  }
+
   /** Names of the sales listings that use this stock item. */
   listingsUsing(sku) {
     return this.db.prepare(`
@@ -208,6 +297,10 @@ export class Inventory {
     if (applyToStock === undefined) {
       applyToStock = !(this.goLiveAt && occurredAt && occurredAt < this.goLiveAt);
     }
+    const item = this.getProduct(sku);
+    // Dropshipping: the supplier delivers; the sale counts for the statistics only.
+    if (item?.supply === 'dropship') applyToStock = false;
+    let cut = null;
     const target = Math.max(0, Number.parseInt(quantity, 10) || 0);
     const movement = transaction(this.db, () => {
       const { booked, bookedApplied } = this.db.prepare(`
@@ -219,10 +312,12 @@ export class Inventory {
       if (diff === 0) return null;
       const base = { sku, channel, lineRef, note };
       if (diff > 0) {
-        return this.#move({
+        const sale = this.#move({
           ...base, delta: -diff, type: 'sale', applied: applyToStock,
           createdAt: booked === 0 ? occurredAt : undefined,
         });
+        if (applyToStock) cut = this.#cutSamples(sku);
+        return sale;
       }
       // Cancellation: only give back stock that was actually taken. Units booked as
       // history only (backfill) are reversed in the history as well, without stock effect.
@@ -238,10 +333,15 @@ export class Inventory {
       return last;
     });
 
+    if (cut) {
+      this.bus.log('info', `${cut.pieces}× ${cut.parent.name} versneden tot ${cut.samples} samples (${sku})`, { sku });
+      this.enqueueSync(cut.parent.sku);
+      this.bus.publish('product', this.getProduct(cut.parent.sku));
+    }
     if (movement?.applied) {
       const label = CHANNEL_LABELS[channel] ?? channel;
       const verb = movement.type === 'sale' ? 'verkocht' : 'terug op voorraad (annulering)';
-      this.bus.log('info', `${Math.abs(movement.delta)}× ${sku} ${verb} via ${label} → voorraad ${movement.stock_after}`, { channel, sku });
+      this.bus.log('info', `${Math.abs(movement.delta)}× ${sku} ${verb} via ${label} → voorraad ${this.getProduct(sku)?.stock ?? movement.stock_after}`, { channel, sku });
       this.enqueueSync(sku);
       this.bus.publish('product', this.getProduct(sku));
     }
@@ -295,6 +395,10 @@ export class Inventory {
       SELECT l.* FROM listings l JOIN listing_components c ON c.listing_id = l.id WHERE c.item_sku = ?
     `).all(sku);
     for (const listing of listings) this.enqueueListingSync(listing, channels, { notify: false });
+    // Samples cut from this item: what can be cut changes with its stock.
+    for (const { sku: s } of this.db.prepare('SELECT sku FROM products WHERE cut_from = ?').all(sku)) {
+      for (const channel of channels) stmt.run(s, channel);
+    }
     this.bus.emit('sync_requested');
   }
 

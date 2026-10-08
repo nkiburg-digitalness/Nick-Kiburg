@@ -80,3 +80,30 @@ test('a stock item used by listings cannot be deleted; listings that lost it are
   assert.equal(fixed.available.quantity, 60);
   assert.equal(fixed.woo_variation_id, 12, 'the webshop link is kept');
 });
+
+test('plaktegels: per tegel / per doos van N tegels / sample bestellen', () => {
+  const { inventory } = setup();
+  const add = (sku, name, vid, extra = {}) => inventory.upsertProduct({ sku, name, woo_product_id: 50, woo_variation_id: vid, stock: 0, ...extra });
+  add('MARMER-1', 'Plaktegel Marmer – Per tegel', 51, { stock: 120 });
+  add('MARMER-DOOS', 'Plaktegel Marmer – Per doos van 20 tegels', 52);
+  add('MARMER-SAMPLE', 'Plaktegel Marmer – Sample bestellen', 53, { stock: 2 });
+  // A dropshipping product with a pack size in m² is not touched.
+  inventory.upsertProduct({ sku: 'PVC-PAK', name: 'PVC vloer Eiken – Per pak (2,1 m²)', woo_product_id: 60, woo_variation_id: 61, stock: 0, supply: 'dropship' });
+  inventory.upsertProduct({ sku: 'PVC-SAMPLE', name: 'PVC vloer Eiken – Sample bestellen', woo_product_id: 60, woo_variation_id: 62, stock: 5 });
+
+  const groups = suggestPacks(inventory);
+  assert.equal(groups.length, 1);
+  const g = groups[0];
+  assert.equal(g.base.sku, 'MARMER-1');
+  assert.deepEqual(g.variants.map((v) => [v.sku, v.quantity]), [['MARMER-DOOS', 20]]);
+  assert.deepEqual(g.samples.map((s) => s.sku), ['MARMER-SAMPLE']);
+
+  const r = applyPacks(inventory, [g.key], { yields: { [g.key]: 3 } });
+  assert.deepEqual([r.listings, r.samples, r.errors], [1, 1, []]);
+  const sample = inventory.getProduct('MARMER-SAMPLE');
+  assert.deepEqual([sample.cut_from, sample.cut_yield, sample.stock], ['MARMER-1', 3, 2]);
+  assert.equal(inventory.availableStock(sample).quantity, 2 + 120 * 3);
+  assert.equal(inventory.listListings().find((l) => l.name.includes('doos')).available.quantity, 6);
+  assert.equal(suggestPacks(inventory).length, 0, 'set up: not proposed again');
+  assert.equal(inventory.getProduct('PVC-SAMPLE').cut_from, null, 'samples of dropship products stay their own stock');
+});

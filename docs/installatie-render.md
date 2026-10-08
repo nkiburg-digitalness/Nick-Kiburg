@@ -101,6 +101,11 @@ Menu rechtsboven → **Importeren / exporteren** → kies bovenaan de **webshop*
 
 > **Let op:** vanaf het moment dat de synchronisatie gestart is, is de voorraad in dit systeem **leidend**. Die voorraad wordt naar de webshop gestuurd en, zodra het Bol-offer-ID bekend is, ook naar Bol.com. Controleer dus vóór het koppelen of de voorraadstanden kloppen.
 
+### Dropshipping en samples (bijv. plaktegels.com)
+
+- **Dropshipping per categorie** (Importeren / exporteren): vink de categorieën aan die de leverancier levert. Die producten staan in de webshop altijd op voorraad, zonder aantal. Per product kunt u ze op **Tijdelijk niet leverbaar** zetten (Productinstellingen). Samples in die categorieën blijven eigen voorraad. Doe dit vóór *Verpakkingen en meters herkennen*.
+- **Tegels, dozen en samples**: *Verpakkingen en meters herkennen* herkent "Per tegel", "Per doos van 20 tegels" en "Sample bestellen". De doos gebruikt 20 tegels; de sample wordt uit een tegel gesneden – vul per product in hoeveel samples er uit één tegel gaan. U telt de tegels; bij de sample telt u alleen de losse, al gesneden samples (vaak 0). Is er geen los sample meer, dan versnijdt het dashboard automatisch een tegel.
+
 ## Stap 5 – Collega's toevoegen
 
 Menu rechtsboven → **Gebruikers beheren**. Per collega kiest u:

@@ -18,6 +18,11 @@ export class DemoChannel {
     await new Promise((resolve) => setTimeout(resolve, 150 + Math.random() * 350));
     return Math.max(0, quantity);
   }
+
+  async pushAvailability(product, available) {
+    await this.pushStock(product, available ? 1 : 0);
+    return available ? 1 : 0;
+  }
 }
 
 /**

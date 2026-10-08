@@ -16,12 +16,23 @@ const PIECE_PATTERNS = [
   /^(\d+)\s*-?\s*(?:pack|pak|set|delig)$/i, // "2-pack", "3 delig"
 ];
 const METRE_PATTERN = /^(\d+)\s*(?:m|mtr\.?|meter|meters)$/i;
+// "Per tegel", "Per stuk", "Los": one piece.
+const SINGLE_PATTERN = /^(?:per\s+)?(?:tegel|stuk|los|losse\s+tegel|1\s+tegel)$/i;
+// "Per doos van 10 tegels", "Doos (20 stuks)", "24 tegels per doos" (not "2,1 m²").
+const BOX_PATTERNS = [
+  /^(?:per\s+)?(?:doos|pak|box|verpakking)\b\D*?(\d+)(?![,.]\d)\s*(?:tegels?|stuks?|st\.?)?\)?$/i,
+  /^(\d+)(?![,.]\d)\s*(?:tegels?|stuks?)\s*(?:per|in\s+een|in)\s*(?:doos|pak|box)$/i,
+];
+/** A sample variation ("Sample bestellen", "Staal", "Proefstuk"). */
+export const SAMPLE_PATTERN = /\b(?:samples?|staal|stalen|proefstuk|monster)\b/i;
 
 function parseOption(option) {
   const text = String(option ?? '').trim();
+  if (SAMPLE_PATTERN.test(text)) return { unit: 'stuks', sample: true };
   const metres = text.match(METRE_PATTERN);
   if (metres) return { unit: 'meter', quantity: Number(metres[1]) };
-  for (const pattern of PIECE_PATTERNS) {
+  if (SINGLE_PATTERN.test(text)) return { unit: 'stuks', quantity: 1 };
+  for (const pattern of [...PIECE_PATTERNS, ...BOX_PATTERNS]) {
     const m = text.match(pattern);
     if (m) return { unit: 'stuks', quantity: Number(m[1]) };
   }
@@ -42,6 +53,8 @@ export function suggestPacks(inventory) {
     .map((l) => ({ sku: l.sku ?? '', name: l.name, woo_product_id: l.woo_product_id, woo_variation_id: l.woo_variation_id, stock: null, stock_confirmed: 0, listingId: l.id }));
   for (const p of [...inventory.listProducts(), ...orphans]) {
     if (!p.woo_product_id || !p.woo_variation_id) continue;
+    // Dropshipping has no own stock; a sample that is already cut from an item is set up.
+    if (p.supply === 'dropship' || p.cut_from) continue;
     const at = p.name.lastIndexOf(' – ');
     if (at < 0) continue;
     const baseName = p.name.slice(0, at);
@@ -60,7 +73,12 @@ export function suggestPacks(inventory) {
         wooProductId: p.woo_product_id,
         rest,
         variants: [],
+        samples: [],
       });
+    }
+    if (amount.sample) {
+      groups.get(key).samples.push({ sku: p.sku, name: p.name, listingId: p.listingId ?? null });
+      continue;
     }
     groups.get(key).variants.push({ sku: p.sku, name: p.name, quantity: amount.quantity, stock: p.stock, stockConfirmed: Boolean(p.stock_confirmed), listingId: p.listingId ?? null });
   }
@@ -71,8 +89,10 @@ export function suggestPacks(inventory) {
     const single = g.unit === 'stuks' ? g.variants.find((v) => v.quantity === 1 && !v.listingId) : null;
     // Only listings left whose stock item was deleted (e.g. out of the assortment): leave them.
     if (!single && g.variants.every((v) => v.listingId)) continue;
-    // A group only makes sense with at least two amounts, or one amount > 1 for metres.
-    if (g.variants.length < 2 && !(g.unit === 'meter' && g.variants[0]?.quantity > 1)) continue;
+    const samples = g.samples.filter((s) => !s.listingId);
+    // A group only makes sense with at least two amounts, one amount > 1 for metres, or a
+    // single piece with a sample that is cut from it.
+    if (g.variants.length < 2 && !(g.unit === 'meter' && g.variants[0]?.quantity > 1) && !(single && samples.length)) continue;
     const suffix = g.rest.length ? `-${slug(g.rest.join('-'))}` : '';
     const base = single
       ? { sku: single.sku, name: single.name, existing: true }
@@ -87,6 +107,8 @@ export function suggestPacks(inventory) {
       unit: g.unit,
       base,
       variants: g.variants.filter((v) => v.listingId || v.sku !== base.sku),
+      // Samples stay their own stock item (loose samples) and are cut from the base item.
+      samples: g.unit === 'stuks' ? samples : [],
     });
   }
   return result.sort((a, b) => a.title.localeCompare(b.title, 'nl'));
@@ -96,9 +118,9 @@ export function suggestPacks(inventory) {
  * Apply the selected proposals (by key). New stock items start as "not counted yet";
  * the variations become listings (their webshop/Bol.com links move along).
  */
-export function applyPacks(inventory, keys, { userName = null } = {}) {
+export function applyPacks(inventory, keys, { userName = null, yields = {} } = {}) {
   const wanted = new Set(keys);
-  const out = { groups: 0, listings: 0, newItems: 0, errors: [] };
+  const out = { groups: 0, listings: 0, newItems: 0, samples: 0, errors: [] };
   for (const g of suggestPacks(inventory).filter((s) => wanted.has(s.key))) {
     try {
       if (!g.base.existing && !inventory.getProduct(g.base.sku)) {
@@ -125,6 +147,12 @@ export function applyPacks(inventory, keys, { userName = null } = {}) {
           replace_product: product.sku,
         }, { userName });
         out.listings++;
+      }
+      // Samples: loose samples are their own stock; more are cut from the base item.
+      for (const s of g.samples ?? []) {
+        const k = Number.parseInt(yields[g.key], 10) || 4;
+        inventory.upsertProduct({ sku: s.sku, cut_from: g.base.sku, cut_yield: k }, { userName });
+        out.samples++;
       }
       out.groups++;
     } catch (err) {

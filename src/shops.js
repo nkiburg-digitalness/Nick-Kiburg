@@ -102,7 +102,7 @@ export function createShopRuntime({ shop, config, hub, fetchImpl = fetch, dbFile
   const byName = Object.fromEntries(channels.map((c) => [c.name, c]));
   const inventory = new Inventory({ db, bus, channels: channels.map((c) => c.name), goLiveAt });
   const worker = new SyncWorker({
-    db, bus, channels, intervalMs: config.sync.workerIntervalMs, maxBackoffSeconds: config.sync.maxBackoffSeconds,
+    db, bus, channels, inventory, intervalMs: config.sync.workerIntervalMs, maxBackoffSeconds: config.sync.maxBackoffSeconds,
     isPaused: () => Boolean(shop.sync_paused),
   });
   const pollers = [];

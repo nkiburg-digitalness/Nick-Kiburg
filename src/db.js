@@ -184,6 +184,15 @@ export function openDb(file) {
   // product is never pushed to the sales channels until it has been counted.
   // Unit the stock is counted in, e.g. 'stuks' or 'meter'.
   ensureColumn(db, 'products', 'unit', "TEXT NOT NULL DEFAULT 'stuks'");
+  // Dropshipping: the supplier delivers, the product is always "in stock" unless the
+  // webshop marks it temporarily unavailable (available = 0).
+  ensureColumn(db, 'products', 'supply', "TEXT NOT NULL DEFAULT 'stock'");
+  ensureColumn(db, 'products', 'available', 'INTEGER NOT NULL DEFAULT 1');
+  ensureColumn(db, 'products', 'category', 'TEXT');
+  // Samples cut from another stock item (e.g. 4 samples out of one tile): this item holds
+  // the loose samples; more are cut from `cut_from` when needed.
+  ensureColumn(db, 'products', 'cut_from', 'TEXT');
+  ensureColumn(db, 'products', 'cut_yield', 'INTEGER');
   if (ensureColumn(db, 'products', 'stock_confirmed', 'INTEGER NOT NULL DEFAULT 1')) {
     // Products imported with stock 0 that were never counted or received: unknown.
     db.exec(`UPDATE products SET stock_confirmed = 0 WHERE stock = 0 AND NOT EXISTS (

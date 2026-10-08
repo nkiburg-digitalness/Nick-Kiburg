@@ -21,7 +21,13 @@ export function linkReport(inventory, { hasWoo = true, hasBol = false, bolUnmatc
   for (const p of inventory.listProducts()) {
     const notes = [];
     const parts = usedIn.get(p.sku);
-    if (!p.stock_confirmed) notes.push('Nog niet geteld');
+    const dropship = p.supply === 'dropship';
+    const parent = p.cut_from ? inventory.getProduct(p.cut_from) : null;
+    if (!p.stock_confirmed && !dropship) notes.push(parent ? 'Nog niet geteld (tel alleen de losse samples, vaak 0)' : 'Nog niet geteld');
+    if (dropship && !p.available) notes.push('Tijdelijk niet leverbaar');
+    const supplyText = dropship
+      ? `Dropshipping – ${p.available ? 'leverbaar' : 'tijdelijk niet leverbaar'}`
+      : parent ? `Sample uit ${parent.name} (${p.cut_yield} per stuk); ${p.stock_confirmed ? `${p.stock} los, ${inventory.availableStock(p).quantity} te verkopen` : 'losse samples nog niet geteld'}` : '';
     if (hasWoo && !p.woo_product_id && !parts) notes.push('Niet in de webshop');
     if (hasBol && !p.bol_offer_id && !p.ean && p.woo_product_id) notes.push('Geen EAN: kan niet aan Bol.com gekoppeld worden (alleen nodig als het op Bol.com staat)');
     rows.push({
@@ -29,12 +35,12 @@ export function linkReport(inventory, { hasWoo = true, hasBol = false, bolUnmatc
       SKU: p.sku,
       Naam: p.name,
       Eenheid: p.unit === 'meter' ? 'meter' : 'stuks',
-      Voorraad: p.stock_confirmed ? p.stock : '',
-      Geteld: p.stock_confirmed ? 'ja' : 'nee',
+      Voorraad: dropship ? '' : p.stock_confirmed ? p.stock : '',
+      Geteld: dropship ? '–' : p.stock_confirmed ? 'ja' : 'nee',
       EAN: p.ean ?? '',
       Webshop: webshop(p),
       'Bol.com': hasBol ? bol(p) : '–',
-      'Bestaat uit': parts ? `gebruikt in: ${parts.join(' | ')}` : '',
+      'Bestaat uit': [supplyText, parts ? `gebruikt in: ${parts.join(' | ')}` : ''].filter(Boolean).join('; '),
       'Let op': notes.join('; '),
     });
   }

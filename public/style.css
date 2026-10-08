@@ -275,7 +275,7 @@ button:disabled { opacity: 0.6; cursor: progress; }
 .listing-row .meta { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--text-2); }
 .listing-row button { padding: 3px 8px; font-size: 12px; }
 
-#packs-box, #unlinked-box { display: grid; gap: 8px; }
+#packs-box, #unlinked-box, #dropship-box { display: grid; gap: 8px; }
 .pack-group { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; display: grid; gap: 4px; font-size: 13px; }
 .pack-group label { display: flex; gap: 8px; align-items: center; font-weight: 600; }
 .pack-group ul { margin: 0; padding-left: 26px; color: var(--text-2); font-size: 12px; }
@@ -476,3 +476,5 @@ table.moves { width: 100%; border-collapse: collapse; font-size: 13px; }
 .bol-offer { display: flex; gap: 10px; align-items: center; justify-content: space-between; border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; font-size: 13px; }
 .bol-offer.done { opacity: .6; }
 .bol-offer button { flex: none; }
+
+.badge.dropship { color: var(--text-2); background: var(--surface-2); border-color: var(--border); }

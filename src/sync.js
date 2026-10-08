@@ -7,8 +7,9 @@ import { CHANNEL_LABELS } from './inventory.js';
  * so a temporary Bol.com or webshop outage never loses a stock update.
  */
 export class SyncWorker {
-  constructor({ db, bus, channels, intervalMs = 2000, maxBackoffSeconds = 900, isPaused = () => false }) {
+  constructor({ db, bus, channels, intervalMs = 2000, maxBackoffSeconds = 900, isPaused = () => false, inventory = null }) {
     this.isPaused = isPaused;
+    this.inventory = inventory; // for availability of samples cut from another item
     this.db = db;
     this.bus = bus;
     this.channels = new Map(channels.map((c) => [c.name, c]));
@@ -65,7 +66,9 @@ export class SyncWorker {
       done();
       return;
     }
-    if (!product.stock_confirmed) {
+    if (product.supply === 'dropship') return this.#processDropship(job, channel, product, done);
+    const availability = this.inventory?.availableStock(product) ?? { quantity: product.stock, known: Boolean(product.stock_confirmed) };
+    if (!availability.known) {
       // Unknown stock (never counted): never push a guessed 0 to a sales channel.
       done();
       this.bus.publish('synced', { sku: job.sku, channel: job.channel, skipped: 'voorraad nog niet geteld' });
@@ -73,15 +76,16 @@ export class SyncWorker {
     }
     const label = CHANNEL_LABELS[job.channel] ?? job.channel;
     try {
-      const pushed = await channel.pushStock(product, product.stock);
+      const pushed = await channel.pushStock(product, availability.quantity);
       const now = new Date().toISOString();
       this.db.prepare(`
         INSERT INTO channel_stock (sku, channel, stock, synced_at) VALUES (?, ?, ?, ?)
         ON CONFLICT(sku, channel) DO UPDATE SET stock = excluded.stock, synced_at = excluded.synced_at
       `).run(job.sku, job.channel, pushed, now);
       // Only clear the job if no newer change was queued while we were pushing.
-      const current = this.db.prepare('SELECT stock FROM products WHERE sku = ?').get(job.sku);
-      if (current?.stock === product.stock) done();
+      const current = this.db.prepare('SELECT * FROM products WHERE sku = ?').get(job.sku);
+      const now2 = current && (this.inventory?.availableStock(current).quantity ?? current.stock);
+      if (now2 === availability.quantity) done();
       this.bus.publish('synced', { sku: job.sku, channel: job.channel, stock: pushed, syncedAt: now });
     } catch (err) {
       if (err instanceof SkipSync) {
@@ -92,6 +96,35 @@ export class SyncWorker {
       const { attempts, backoff } = this.#retryLater(err, job.attempts, 'sync_queue', 'sku = ? AND channel = ?', [job.sku, job.channel]);
       this.bus.log(attempts >= 5 ? 'error' : 'warn',
         `Voorraad ${job.sku} naar ${label} sturen mislukt (poging ${attempts}, opnieuw over ${backoff}s): ${err.message}`,
+        { channel: job.channel, sku: job.sku });
+      this.bus.publish('sync_failed', { sku: job.sku, channel: job.channel, attempts, error: err.message });
+    }
+  }
+
+  /** Dropshipping: no quantity, only "in stock" or "temporarily not available". */
+  async #processDropship(job, channel, product, done) {
+    const label = CHANNEL_LABELS[job.channel] ?? job.channel;
+    const available = Boolean(product.available);
+    try {
+      if (typeof channel.pushAvailability !== 'function') throw new SkipSync('kanaal ondersteunt geen dropshipping');
+      const pushed = await channel.pushAvailability(product, available);
+      const now = new Date().toISOString();
+      this.db.prepare(`
+        INSERT INTO channel_stock (sku, channel, stock, synced_at) VALUES (?, ?, ?, ?)
+        ON CONFLICT(sku, channel) DO UPDATE SET stock = excluded.stock, synced_at = excluded.synced_at
+      `).run(job.sku, job.channel, pushed, now);
+      const current = this.db.prepare('SELECT available, supply FROM products WHERE sku = ?').get(job.sku);
+      if (!current || (current.supply === 'dropship' && Boolean(current.available) === available)) done();
+      this.bus.publish('synced', { sku: job.sku, channel: job.channel, stock: pushed, syncedAt: now });
+    } catch (err) {
+      if (err instanceof SkipSync) {
+        done();
+        this.bus.publish('synced', { sku: job.sku, channel: job.channel, skipped: err.message });
+        return;
+      }
+      const { attempts, backoff } = this.#retryLater(err, job.attempts, 'sync_queue', 'sku = ? AND channel = ?', [job.sku, job.channel]);
+      this.bus.log(attempts >= 5 ? 'error' : 'warn',
+        `Leverbaarheid ${job.sku} naar ${label} sturen mislukt (poging ${attempts}, opnieuw over ${backoff}s): ${err.message}`,
         { channel: job.channel, sku: job.sku });
       this.bus.publish('sync_failed', { sku: job.sku, channel: job.channel, attempts, error: err.message });
     }

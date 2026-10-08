@@ -16,6 +16,7 @@ const ICONS = {
   warning: '<svg viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="4.6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M6 3.4V6l1.8 1.2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
   critical: '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1.3 11 10.4H1L6 1.3Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M6 4.8v2.4M6 8.6v.1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
   uncounted: '<svg viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="4.6" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M4.6 4.7a1.5 1.5 0 1 1 2.1 1.4c-.5.2-.7.5-.7 1v.2M6 8.7v.1" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>',
+  dropship: '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M1 3h6v5H1zM7 5h2.4L11 6.8V8H7" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><circle cx="3" cy="9" r="1" fill="currentColor"/><circle cx="9" cy="9" r="1" fill="currentColor"/></svg>',
   out: '<svg viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="4.6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M4.2 4.2l3.6 3.6M7.8 4.2 4.2 7.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
 };
 const STATUS = {
@@ -24,6 +25,7 @@ const STATUS = {
   critical: { label: 'Nu bestellen', rank: 1 },
   out: { label: 'Uitverkocht', rank: 0 },
   uncounted: { label: 'Nog niet geteld', rank: -1 },
+  dropship: { label: 'Dropshipping', rank: 4 },
 };
 const MOVE_TYPES = { sale: 'Verkoop', sale_reversal: 'Annulering', receipt: 'Ontvangst', correction: 'Correctie' };
 
@@ -333,6 +335,18 @@ function usedInCell(p) {
   return `<div class="used-in" title="${esc(p.usedIn.map((u) => `${u.name} (${u.quantity}×)`).join(', '))}">+ ${p.usedIn.length} verkoopartikel${p.usedIn.length > 1 ? 'en' : ''}</div>`;
 }
 
+/** Stock column: own stock, dropshipping, or samples (loose + what can be cut). */
+function stockCell(p) {
+  if (p.supply === 'dropship') {
+    return `<span class="stock muted" title="Wordt door de leverancier geleverd: staat altijd op voorraad">leverancier</span>${p.available ? '' : '<div class="small" style="color:var(--critical-ink)">niet leverbaar</div>'}`;
+  }
+  if (!p.stock_confirmed) return '<span class="stock muted" title="Voorraad nog niet geteld – wordt niet naar de kanalen gestuurd">?</span>';
+  if (p.cut_from) {
+    return `<span class="stock" title="Losse samples plus wat er nog uit de voorraad gesneden kan worden">${nf.format(p.sellable ?? p.stock)}</span><div class="muted small">waarvan ${nf.format(p.stock)} los</div>`;
+  }
+  return `<span class="stock ${p.stock < 0 ? 'neg' : ''}">${withUnit(p.stock, p.unit)}</span>`;
+}
+
 /** Bol.com sets / packs of this item that are not sold on their own on Bol.com. */
 function bolSetLines(p, s) {
   if (!s?.hasBol || p.bol_offer_id) return '';
@@ -384,11 +398,19 @@ function syncCell(p) {
     const pushed = p.channelStock[c];
     let st;
     const linked = c === 'bol' ? p.bol_offer_id : p.woo_product_id;
+    const target = p.cut_from ? p.sellable : Math.max(0, p.stock);
+    if (p.supply === 'dropship') {
+      if (!state.data.demoMode && (!ch.connected || !linked)) st = '<span class="state">niet gekoppeld</span>';
+      else if (pend?.lastError) st = `<span class="state error" title="${esc(pend.lastError)}">mislukt, opnieuw…</span>`;
+      else if (pend) st = `<span class="state pending">${s?.syncPaused ? 'gepauzeerd' : 'bijwerken…'}</span>`;
+      else st = `<span class="state">${pushed ? (pushed.stock ? 'op voorraad' : 'uitverkocht') : '–'}${pushed && Boolean(pushed.stock) === Boolean(p.available) ? ' ✓' : ''}</span>`;
+      return `<span><i class="swatch ${c}"></i>${st}</span>`;
+    }
     if (!p.stock_confirmed) st = '<span class="state pending">wacht op telling</span>';
     else if (!state.data.demoMode && (!ch.connected || !linked)) st = '<span class="state">niet gekoppeld</span>';
     else if (pend?.lastError) st = `<span class="state error" title="${esc(pend.lastError)}">mislukt, opnieuw…</span>`;
     else if (pend) st = `<span class="state pending">${s?.syncPaused ? 'gepauzeerd' : 'bijwerken…'}</span>`;
-    else if (pushed) st = `<span class="state">${nf.format(pushed.stock)} ${pushed.stock === Math.max(0, p.stock) ? '✓' : ''}</span>`;
+    else if (pushed) st = `<span class="state">${nf.format(pushed.stock)} ${pushed.stock === target ? '✓' : ''}</span>`;
     else st = '<span class="state">–</span>';
     return `<span><i class="swatch ${c}"></i>${st}</span>`;
   }).join('')}${bolSetLines(p, s)}</div>`;
@@ -430,11 +452,11 @@ function renderRows() {
     return `<tr data-shop="${esc(p.shop)}" data-sku="${esc(p.sku)}" class="${state.flash.has(productKey(p.shop, p.sku)) ? 'flash' : ''}">
       <td><div class="pname">${esc(p.name)}</div><div class="psku">${esc(p.sku)}</div>${usedInCell(p)}</td>
       ${state.shop === 'all' ? `<td>${shopTag(p.shop)}</td>` : ''}
-      <td class="num">${p.stock_confirmed ? `<span class="stock ${p.stock < 0 ? 'neg' : ''}">${withUnit(p.stock, p.unit)}</span>` : '<span class="stock muted" title="Voorraad nog niet geteld – wordt niet naar de kanalen gestuurd">?</span>'}</td>
+      <td class="num">${stockCell(p)}</td>
       <td class="hide-sm">${syncCell(p)}</td>
       <td class="num hide-xs">${nf2.format(f.avgPerDay)}${trend}</td>
       <td class="hide-sm">${sparkline(lastDays, sparkDays)}</td>
-      <td class="num days"><b>${f.status === 'uncounted' ? '<span class="muted">tel eerst</span>' : f.status === 'out' ? '0 dagen' : daysText(f.daysLeft)}</b>${f.soldOutDate && f.status !== 'out' ? `<div class="muted small">± ${dayFmt.format(parseDay(f.soldOutDate))}</div>` : ''}${runway(f, p)}</td>
+      <td class="num days"><b>${f.status === 'dropship' ? '<span class="muted">leverancier</span>' : f.status === 'uncounted' ? '<span class="muted">tel eerst</span>' : f.status === 'out' ? '0 dagen' : daysText(f.daysLeft)}</b>${f.soldOutDate && f.status !== 'out' ? `<div class="muted small">± ${dayFmt.format(parseDay(f.soldOutDate))}</div>` : ''}${runway(f, p)}</td>
       <td class="hide-sm">${f.orderByDate ? orderByText(f.orderByDate) : '<span class="muted">–</span>'}</td>
       <td class="num hide-sm">${f.orderAdvice ? nf.format(f.orderAdvice) : '<span class="muted">–</span>'}</td>
       <td>${badge(f.status)}</td>
@@ -500,7 +522,7 @@ async function renderDetail({ shop, sku }, { keepScroll = false } = {}) {
     </div>
 
     <div class="stats">
-      <div class="stat"><div class="label">Voorraad</div><div class="value">${p.stock_confirmed ? withUnit(p.stock, p.unit) : '?'}</div><div class="hint">centraal, leidend voor alle kanalen</div></div>
+      <div class="stat"><div class="label">Voorraad</div><div class="value">${p.supply === 'dropship' ? (p.available ? 'leverbaar' : 'niet leverbaar') : p.stock_confirmed ? (p.cut_from ? nf.format(p.sellable ?? p.stock) : withUnit(p.stock, p.unit)) : '?'}</div><div class="hint">${p.supply === 'dropship' ? 'dropshipping: de leverancier levert' : p.cut_from ? `${nf.format(p.stock)} losse samples + uit voorraad te snijden` : 'centraal, leidend voor alle kanalen'}</div></div>
       <div class="stat"><div class="label">Gem. verkoop / dag</div><div class="value">${nf2.format(f.avgPerDay)}</div><div class="hint">${f.unitsSold} stuks in ${f.sellingDays} verkoopdagen</div></div>
       <div class="stat"><div class="label">Uitverkocht over</div><div class="value">${f.status === 'out' ? '0' : f.daysLeft === null ? '–' : nf1.format(f.daysLeft)}</div><div class="hint">${f.soldOutDate && f.status !== 'out' ? `dagen · rond ${longDayFmt.format(parseDay(f.soldOutDate))}` : f.daysLeft === null ? 'geen verkopen in periode' : 'dagen'}</div></div>
       <div class="stat"><div class="label">Bestellen vóór</div><div class="value">${f.orderByDate ? dayFmt.format(parseDay(f.orderByDate)) : '–'}</div><div class="hint">levertijd ${p.lead_time_days} d + marge ${p.safety_days} d</div></div>
@@ -607,6 +629,10 @@ async function renderDetail({ shop, sku }, { keepScroll = false } = {}) {
         <label>WooCommerce product-ID<input name="woo_product_id" value="${esc(p.woo_product_id ?? '')}"></label>
         <label>WooCommerce variatie-ID<input name="woo_variation_id" value="${esc(p.woo_variation_id ?? '')}"></label>
         ${shopHasBol ? `<label class="span-2">Bol.com offer-ID<input name="bol_offer_id" value="${esc(p.bol_offer_id ?? '')}"></label>` : ''}
+        <label>Levering<select name="supply"><option value="stock" ${p.supply !== 'dropship' ? 'selected' : ''}>Eigen voorraad</option><option value="dropship" ${p.supply === 'dropship' ? 'selected' : ''}>Dropshipping (leverancier)</option></select></label>
+        <label style="flex-direction:row;align-items:center;gap:8px;align-self:end"><input type="checkbox" name="unavailable" ${p.supply === 'dropship' && !p.available ? 'checked' : ''} ${p.supply === 'dropship' ? '' : 'disabled'}> Tijdelijk niet leverbaar</label>
+        <label>Sample van<select name="cut_from"><option value="">– geen (los artikel) –</option>${state.data.products.filter((x) => x.shop === shop && x.sku !== p.sku && !x.cut_from && x.supply !== 'dropship').map((x) => `<option value="${esc(x.sku)}" ${x.sku === p.cut_from ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>
+        <label>Samples per stuk<input name="cut_yield" type="number" min="1" max="50" value="${p.cut_yield ?? 4}" title="Hoeveel samples er uit één stuk (bijv. één tegel) gesneden worden"></label>
         <div class="actions span-2"><button type="button" class="danger" data-action="delete" data-min-role="beheerder">Product verwijderen</button><button class="primary">Opslaan</button></div>
       </div>
     </form>
@@ -959,6 +985,9 @@ function bindUi() {
         await api(`${base}/${encodeURIComponent(sku)}/count`, { method: 'POST', body: { count: Number(values.count) } });
       } else if (form.dataset.form === 'settings') {
         for (const k of ['lead_time_days', 'safety_days']) values[k] = Number(values[k]);
+        values.available = form.unavailable?.checked && values.supply === 'dropship' ? 0 : 1;
+        delete values.unavailable;
+        if (!values.cut_from) delete values.cut_yield;
         await api(base, { method: 'POST', body: { sku, ...values } });
       }
       form.reset();
@@ -1132,6 +1161,23 @@ function bindUserMenu() {
         const r = await api(`${shopBase(importShop())}/import/woocommerce`, { method: 'POST' });
         return `Producten uit de webshop: ${summary(r)}${r.uncounted ? `<br><b>${r.uncounted} product(en) hebben in WooCommerce geen voorraadaantal</b> ("Voorraad beheren" staat uit). Die staan op <i>Nog niet geteld</i> en worden pas naar de kanalen gestuurd na een voorraadtelling – via de Excel-lijst (kolom stock) of per product.` : ''}${r.generatedSkus ? `<br>${r.generatedSkus} variatie(s) hebben in WooCommerce geen eigen SKU; die hebben hier een eigen SKU gekregen (bijv. met de kleur erin), zodat elke variatie apart geteld wordt.` : ''}${r.repaired?.length ? `<br><b>Hersteld:</b> deze producten bevatten eerder meerdere variaties tegelijk en staan nu op <i>Nog niet geteld</i>: ${r.repaired.map(esc).join(', ')}. Lees daarna de verkoophistorie opnieuw in.` : ''}${eanNote(r, shopInfo(importShop()))}`;
       });
+    } else if (button.dataset.import === 'dropship-list') {
+      runImport(button, async () => {
+        const cats = await api(`${shopBase(importShop())}/dropship`);
+        const box = $('#dropship-box');
+        box.hidden = !cats.length;
+        if (!cats.length) return 'Geen categorieën gevonden. Haal eerst de producten uit de webshop op.';
+        box.innerHTML = `<div class="pack-group">${cats.map((c) => `<label style="font-weight:400"><input type="checkbox" value="${esc(c.category)}" ${c.dropship ? 'checked' : ''}> ${esc(c.category)} <span class="muted small">${c.products} product(en)${c.dropship ? `, ${c.dropship} via leverancier` : ''}</span></label>`).join('')}</div>
+          <div class="actions" style="justify-content:flex-start"><button class="primary" data-import="dropship-save">Opslaan</button></div>`;
+        return 'Vink de categorieën aan die de leverancier levert (dropshipping). Samples in die categorieën blijven eigen voorraad.';
+      });
+    } else if (button.dataset.import === 'dropship-save') {
+      const categories = $$('#dropship-box input[type=checkbox]:checked').map((i) => i.value);
+      runImport(button, async () => {
+        const r = await api(`${shopBase(importShop())}/dropship`, { method: 'POST', body: { categories } });
+        $('#dropship-box').hidden = true;
+        return `Opgeslagen: ${r.changed} product(en) aangepast. Dropshipping-producten staan in de webshop altijd op voorraad (zonder aantal), tenzij u ze per product op <i>tijdelijk niet leverbaar</i> zet.`;
+      });
     } else if (button.dataset.import === 'packs-suggest') {
       runImport(button, async () => {
         const groups = await api(`${shopBase(importShop())}/packs`);
@@ -1146,6 +1192,7 @@ function bindUserMenu() {
           <ul>
             <li>Voorraadartikel: ${g.base.existing ? `<b>${esc(g.base.name)}</b> (bestaand, voorraad blijft)` : `<b>${esc(g.base.name)}</b> – nieuw, <i>nog niet geteld</i>`}</li>
             ${g.variants.map((v) => `<li>${esc(v.name)} → gebruikt ${v.quantity} ${g.unit === 'meter' ? 'm' : '×'}</li>`).join('')}
+            ${(g.samples ?? []).map((sm) => `<li>${esc(sm.name)} → wordt gesneden uit het voorraadartikel: <label style="display:inline-flex;gap:4px;align-items:center"><input type="number" min="1" max="50" value="4" data-yield="${esc(g.key)}" style="width:56px"> samples per stuk</label></li>`).join('')}
           </ul>
         </div>`).join('') + '<div class="actions" style="justify-content:flex-start"><button class="primary" data-import="packs-apply">Aangevinkte toepassen</button></div>';
         return `${groups.length} groep(en) gevonden. Vink uit wat niet klopt en klik op <i>Aangevinkte toepassen</i>.`;
@@ -1153,10 +1200,11 @@ function bindUserMenu() {
     } else if (button.dataset.import === 'packs-apply') {
       const keys = $$('#packs-box input[type=checkbox]:checked').map((i) => i.value);
       if (!keys.length) return;
+      const yields = Object.fromEntries($$('#packs-box input[data-yield]').map((i) => [i.dataset.yield, Number(i.value)]));
       runImport(button, async () => {
-        const r = await api(`${shopBase(importShop())}/packs`, { method: 'POST', body: { keys } });
+        const r = await api(`${shopBase(importShop())}/packs`, { method: 'POST', body: { keys, yields } });
         $('#packs-box').hidden = true;
-        return `Ingesteld: ${r.groups} groep(en), ${r.listings} verkoopartikelen${r.newItems ? `, ${r.newItems} nieuwe voorraadartikelen (nog niet geteld – vul de totale voorraad in, bij tochtband het totaal aantal meters)` : ''}.${r.errors.length ? `<br>Niet gelukt:<br>${r.errors.map(esc).join('<br>')}` : ''}`;
+        return `Ingesteld: ${r.groups} groep(en), ${r.listings} verkoopartikelen${r.samples ? `, ${r.samples} sample(s) gekoppeld aan hun voorraadartikel (tel bij de samples alleen de <i>losse</i>, al gesneden samples – vaak 0)` : ''}${r.newItems ? `, ${r.newItems} nieuwe voorraadartikelen (nog niet geteld – vul de totale voorraad in, bij tochtband het totaal aantal meters)` : ''}.${r.errors.length ? `<br>Niet gelukt:<br>${r.errors.map(esc).join('<br>')}` : ''}`;
       });
     } else if (button.dataset.import === 'bol-offers') {
       runImport(button, async () => {

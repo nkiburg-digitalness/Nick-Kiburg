@@ -36,6 +36,9 @@ function parseOption(option) {
     const m = text.match(pattern);
     if (m) return { unit: 'stuks', quantity: Number(m[1]) };
   }
+  // Extra information in brackets, e.g. "Per doos van 24 tegels (2,2 m²)".
+  const withoutNote = text.replace(/\s*\([^)]*\)\s*$/, '');
+  if (withoutNote !== text && withoutNote) return parseOption(withoutNote);
   return null;
 }
 
@@ -58,7 +61,7 @@ export function suggestPacks(inventory) {
     const at = p.name.lastIndexOf(' – ');
     if (at < 0) continue;
     const baseName = p.name.slice(0, at);
-    const options = p.name.slice(at + 3).split(',').map((o) => o.trim()).filter(Boolean);
+    const options = p.name.slice(at + 3).split(/,(?![^(]*\))/).map((o) => o.trim()).filter(Boolean); // not inside brackets: "(2,2 m²)"
     const parsed = options.map(parseOption);
     const hits = parsed.filter(Boolean);
     if (hits.length !== 1) continue; // exactly one "amount" attribute

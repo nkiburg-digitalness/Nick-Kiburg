@@ -107,3 +107,14 @@ test('plaktegels: per tegel / per doos van N tegels / sample bestellen', () => {
   assert.equal(suggestPacks(inventory).length, 0, 'set up: not proposed again');
   assert.equal(inventory.getProduct('PVC-SAMPLE').cut_from, null, 'samples of dropship products stay their own stock');
 });
+
+test('box sizes 10 / 20 / 24 tiles are read from the variation name', () => {
+  const { inventory } = setup();
+  let vid = 100;
+  for (const [pid, box] of [[1, 'Per doos van 10 tegels'], [2, 'Per doos van 20 tegels'], [3, 'Per doos van 24 tegels'], [4, 'Per doos van 24 tegels (2,2 m²)']]) {
+    for (const opt of ['Per tegel', box, 'Sample bestellen']) {
+      inventory.upsertProduct({ sku: `P${pid}-${vid}`, name: `Plaktegel ${pid} – ${opt}`, woo_product_id: pid, woo_variation_id: vid++, stock: 0 });
+    }
+  }
+  assert.deepEqual(suggestPacks(inventory).map((g) => g.variants.map((v) => v.quantity)), [[10], [20], [24], [24]]);
+});

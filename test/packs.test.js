@@ -101,8 +101,8 @@ test('plaktegels: per tegel / per doos van N tegels / sample bestellen', () => {
   const r = applyPacks(inventory, [g.key], { yields: { [g.key]: 3 } });
   assert.deepEqual([r.listings, r.samples, r.errors], [1, 1, []]);
   const sample = inventory.getProduct('MARMER-SAMPLE');
-  assert.deepEqual([sample.cut_from, sample.cut_yield, sample.stock], ['MARMER-1', 3, 2]);
-  assert.equal(inventory.availableStock(sample).quantity, 2 + 120 * 3);
+  assert.deepEqual([sample.cut_from, sample.cut_yield, sample.stock, sample.stock_confirmed], ['MARMER-1', 3, 0, 1], 'loose samples start at 0');
+  assert.equal(inventory.availableStock(sample).quantity, 120 * 3);
   assert.equal(inventory.listListings().find((l) => l.name.includes('doos')).available.quantity, 6);
   assert.equal(suggestPacks(inventory).length, 0, 'set up: not proposed again');
   assert.equal(inventory.getProduct('PVC-SAMPLE').cut_from, null, 'samples of dropship products stay their own stock');

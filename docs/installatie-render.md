@@ -104,7 +104,7 @@ Menu rechtsboven → **Importeren / exporteren** → kies bovenaan de **webshop*
 ### Dropshipping en samples (bijv. plaktegels.com)
 
 - **Dropshipping per categorie** (Importeren / exporteren): vink de categorieën aan die de leverancier levert. Die producten staan in de webshop altijd op voorraad, zonder aantal. Per product kunt u ze op **Tijdelijk niet leverbaar** zetten (Productinstellingen). Samples in die categorieën blijven eigen voorraad. Doe dit vóór *Verpakkingen en meters herkennen*.
-- **Tegels, dozen en samples**: *Verpakkingen en meters herkennen* herkent "Per tegel", "Per doos van 20 tegels" en "Sample bestellen". De doos gebruikt 20 tegels; de sample wordt uit een tegel gesneden – vul per product in hoeveel samples er uit één tegel gaan. U telt de tegels; bij de sample telt u alleen de losse, al gesneden samples (vaak 0). Is er geen los sample meer, dan versnijdt het dashboard automatisch een tegel.
+- **Tegels, dozen en samples**: *Verpakkingen en meters herkennen* herkent "Per tegel", "Per doos van 20 tegels" en "Sample bestellen". De doos gebruikt 20 tegels; de sample wordt uit een tegel gesneden – vul per product in hoeveel samples er uit één tegel gaan. In de productlijst staat per tegel één regel: u telt alleen de tegels, en het dashboard rekent uit hoeveel dozen en samples er te koop zijn (bijv. "Doos van 20 stuks: 32 · Sample bestellen: 1.300"). Samples worden bij bestelling uit een tegel gesneden; de restjes houdt het dashboard zelf bij (zichtbaar en aan te passen in het productvenster onder *Verkocht als*). Stonden er bij de samples nog aantallen uit de webshop, klik dan één keer op **Losse samples op 0 zetten**.
 
 ## Stap 5 – Collega's toevoegen
 

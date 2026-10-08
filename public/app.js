@@ -314,7 +314,7 @@ function visibleProducts() {
     if (state.filter === 'out' && p.forecast.status !== 'out') return false;
     if (!q) return true;
     // Also find the stock items of a sales listing, e.g. "pakket" finds strip and tape.
-    return [p.name, p.sku, p.ean, ...(p.usedIn ?? []).map((u) => u.name)].some((v) => v && String(v).toLowerCase().includes(q));
+    return [p.name, p.sku, p.ean, ...(p.usedIn ?? []).map((u) => u.name), ...(p.samples ?? []).flatMap((s) => [s.name, s.sku])].some((v) => v && String(v).toLowerCase().includes(q));
   });
   const { key, asc } = state.sort;
   list = list.sort((a, b) => {
@@ -326,13 +326,31 @@ function visibleProducts() {
 }
 
 function usedInCell(p) {
-  if (!p.usedIn?.length) return '';
+  if (!p.usedIn?.length) return variationLine(p);
   const q = state.search.trim().toLowerCase();
-  const hits = q ? p.usedIn.filter((u) => u.name.toLowerCase().includes(q)) : [];
+  // Found via a pack/package name (not its own name): show where it is used.
+  const ownMatch = q && [p.name, p.sku].some((v) => String(v).toLowerCase().includes(q));
+  const hits = q && !ownMatch ? p.usedIn.filter((u) => u.name.toLowerCase().includes(q)) : [];
   if (hits.length) {
     return `<div class="used-in">in: ${hits.map((u) => `${esc(u.name)} (${u.quantity}${p.unit === 'meter' ? ' m' : '×'})`).join(', ')}</div>`;
   }
-  return `<div class="used-in" title="${esc(p.usedIn.map((u) => `${u.name} (${u.quantity}×)`).join(', '))}">+ ${p.usedIn.length} verkoopartikel${p.usedIn.length > 1 ? 'en' : ''}</div>`;
+  return variationLine(p);
+}
+
+/** "Doos van 20 stuks: 32 · Sample bestellen: 1.300" – what can be sold per variation. */
+const shortName = (name) => {
+  const at = name.lastIndexOf(' – ');
+  const s = at >= 0 ? name.slice(at + 3) : name;
+  return s.length > 32 ? `${s.slice(0, 31)}…` : s;
+};
+function variationLine(p) {
+  const parts = [
+    ...(p.usedIn ?? []).map((u) => ({ name: u.name, text: `${esc(shortName(u.name))}: ${u.available === null || u.available === undefined ? '?' : nf.format(u.available)}` })),
+    ...(p.samples ?? []).map((s) => ({ name: s.name, text: `${esc(shortName(s.name))}: ${nf.format(s.sellable ?? 0)}` })),
+  ];
+  if (!parts.length) return '';
+  const shown = parts.slice(0, 3).map((x) => x.text).join(' · ');
+  return `<div class="used-in" title="${esc(parts.map((x) => x.name).join('\n'))}">${shown}${parts.length > 3 ? ` · +${parts.length - 3}` : ''}</div>`;
 }
 
 /** Stock column: own stock, dropshipping, or samples (loose + what can be cut). */
@@ -385,10 +403,24 @@ function backfillSummary(r) {
   return `Verkoophistorie ingelezen.<br>${parts.join('<br>')}${r.channelDays?.bol < r.days ? '<br>Bol.com geeft maximaal de laatste 3 maanden vrij.' : ''}`;
 }
 
+/** Webshop status of the samples cut from this item. */
+function sampleLines(p, s) {
+  return (p.samples ?? []).filter((x) => x.woo_product_id).map((x) => {
+    const pend = x.pendingSync?.woocommerce;
+    const pushed = x.channelStock?.woocommerce;
+    let st;
+    if (!p.stock_confirmed) st = 'wacht op telling';
+    else if (pend?.lastError) st = `<span class="error" title="${esc(pend.lastError)}">mislukt, opnieuw…</span>`;
+    else if (pend) st = s?.syncPaused ? 'gepauzeerd' : 'bijwerken…';
+    else st = pushed ? `${nf.format(pushed.stock)}${pushed.stock === x.sellable ? ' ✓' : ''}` : '–';
+    return `<span title="${esc(x.name)}"><i class="swatch woocommerce"></i><span class="state">sample: ${st}</span></span>`;
+  }).join('');
+}
+
 function syncCell(p) {
   const s = shopInfo(p.shop);
   if (!p.woo_product_id && !p.bol_offer_id && p.usedIn?.length) {
-    return `<div class="sync"><span class="state">${p.stock_confirmed ? `via ${p.usedIn.length} verkoopartikel${p.usedIn.length > 1 ? 'en' : ''}` : 'wacht op telling'}</span>${bolSetLines(p, s)}</div>`;
+    return `<div class="sync"><span class="state">${p.stock_confirmed ? `via ${p.usedIn.length} verkoopartikel${p.usedIn.length > 1 ? 'en' : ''}` : 'wacht op telling'}</span>${bolSetLines(p, s)}${sampleLines(p, s)}</div>`;
   }
   // Webshops (or products) not on Bol.com show only the webshop line.
   const names = ['woocommerce', 'bol'].filter((c) => c === 'woocommerce' || (s?.hasBol && p.bol_offer_id) || p.pendingSync.bol);
@@ -413,7 +445,7 @@ function syncCell(p) {
     else if (pushed) st = `<span class="state">${nf.format(pushed.stock)} ${pushed.stock === target ? '✓' : ''}</span>`;
     else st = '<span class="state">–</span>';
     return `<span><i class="swatch ${c}"></i>${st}</span>`;
-  }).join('')}${bolSetLines(p, s)}</div>`;
+  }).join('')}${bolSetLines(p, s)}${sampleLines(p, s)}</div>`;
 }
 
 function sparkline(values, days) {
@@ -597,7 +629,26 @@ async function renderDetail({ shop, sku }, { keepScroll = false } = {}) {
             </div>
           </div>
           <span data-min-role="beheerder"><button data-listing-edit="${l.id}">Bewerken</button></span>
-        </div>`).join('') : '<p class="muted small" style="margin:0">Alleen als los artikel (zie Kanalen).</p>'}
+        </div>`).join('') : (p.samples?.length ? '' : '<p class="muted small" style="margin:0">Alleen als los artikel (zie Kanalen).</p>')}
+        ${(p.samples ?? []).map((sm) => {
+          const pushed = sm.channelStock?.woocommerce;
+          const pend = sm.pendingSync?.woocommerce;
+          return `<div class="listing-row">
+          <div class="grow"><b>${esc(sm.name)}</b>
+            <div class="meta">
+              <span>${sm.yield} samples per stuk</span>
+              <span>te verkopen: ${nf.format(sm.sellable ?? 0)}</span>
+              <span title="Stukjes van een al gesneden ${esc(shortName(p.name).toLowerCase())}; worden bij de volgende sample-bestelling eerst gebruikt">${nf.format(sm.loose)} losse restjes</span>
+              ${sm.woo_product_id ? `<span><i class="swatch woocommerce"></i>Webshop: ${pend?.lastError ? '<span style="color:var(--critical-ink)">mislukt</span>' : pend ? pendingText(shop) : pushed ? nf.format(pushed.stock) : '–'}</span>` : ''}
+            </div>
+            <form class="row" data-form="sample" data-sample="${esc(sm.sku)}" data-min-role="medewerker" style="margin-top:6px;gap:8px;flex-wrap:wrap;align-items:center">
+              <label class="small" style="display:flex;gap:4px;align-items:center">Samples per stuk <input name="cut_yield" type="number" min="1" max="50" value="${sm.yield}" style="width:64px"></label>
+              <label class="small" style="display:flex;gap:4px;align-items:center">Losse restjes <input name="loose" type="number" min="0" value="${sm.loose}" style="width:80px"></label>
+              <button>Opslaan</button>
+            </form>
+          </div>
+        </div>`;
+        }).join('')}
       </div>
       <div class="actions" data-min-role="beheerder" style="justify-content:flex-start">
         <button data-action="add-listing">+ Verkoopartikel toevoegen</button>
@@ -983,6 +1034,13 @@ function bindUi() {
         await api(`${base}/${encodeURIComponent(sku)}/adjust`, { method: 'POST', body: { delta: Number(values.delta), type: 'receipt', note: values.note || 'Levering' } });
       } else if (form.dataset.form === 'count') {
         await api(`${base}/${encodeURIComponent(sku)}/count`, { method: 'POST', body: { count: Number(values.count) } });
+      } else if (form.dataset.form === 'sample') {
+        const sampleSku = form.dataset.sample;
+        await api(base, { method: 'POST', body: { sku: sampleSku, cut_from: sku, cut_yield: Number(values.cut_yield) } });
+        const current = state.data.products.find((x) => x.shop === shop && x.sku === sku)?.samples?.find((x) => x.sku === sampleSku);
+        if (current && Number(values.loose) !== current.loose) {
+          await api(`${base}/${encodeURIComponent(sampleSku)}/count`, { method: 'POST', body: { count: Number(values.loose), note: 'Losse restjes geteld' } });
+        }
       } else if (form.dataset.form === 'settings') {
         for (const k of ['lead_time_days', 'safety_days']) values[k] = Number(values[k]);
         values.available = form.unavailable?.checked && values.supply === 'dropship' ? 0 : 1;
@@ -1160,6 +1218,12 @@ function bindUserMenu() {
       runImport(button, async () => {
         const r = await api(`${shopBase(importShop())}/import/woocommerce`, { method: 'POST' });
         return `Producten uit de webshop: ${summary(r)}${r.uncounted ? `<br><b>${r.uncounted} product(en) hebben in WooCommerce geen voorraadaantal</b> ("Voorraad beheren" staat uit). Die staan op <i>Nog niet geteld</i> en worden pas naar de kanalen gestuurd na een voorraadtelling – via de Excel-lijst (kolom stock) of per product.` : ''}${r.generatedSkus ? `<br>${r.generatedSkus} variatie(s) hebben in WooCommerce geen eigen SKU; die hebben hier een eigen SKU gekregen (bijv. met de kleur erin), zodat elke variatie apart geteld wordt.` : ''}${r.repaired?.length ? `<br><b>Hersteld:</b> deze producten bevatten eerder meerdere variaties tegelijk en staan nu op <i>Nog niet geteld</i>: ${r.repaired.map(esc).join(', ')}. Lees daarna de verkoophistorie opnieuw in.` : ''}${eanNote(r, shopInfo(importShop()))}`;
+      });
+    } else if (button.dataset.import === 'samples-reset') {
+      if (!confirm('De losse (al gesneden) samples van alle tegels op 0 zetten? Het aantal samples wordt daarna berekend als tegels × samples per tegel.')) return;
+      runImport(button, async () => {
+        const r = await api(`${shopBase(importShop())}/samples/reset`, { method: 'POST', body: {} });
+        return `Losse samples op 0 gezet bij ${r.reset} product(en). Het aantal samples in de webshop is nu tegels × samples per tegel.`;
       });
     } else if (button.dataset.import === 'dropship-list') {
       runImport(button, async () => {

@@ -198,7 +198,7 @@ export function createHttpServer(app) {
         for (const c of l.components) {
           if (!usedIn.has(c.item_sku)) usedIn.set(c.item_sku, []);
           usedIn.get(c.item_sku).push({
-            id: l.id, name: l.name, quantity: c.quantity,
+            id: l.id, name: l.name, quantity: c.quantity, available: l.available.known ? l.available.quantity : null,
             // What was last sent for this listing per channel (shown in the product list).
             channels: Object.fromEntries(['woocommerce', 'bol']
               .filter((ch) => (ch === 'bol' ? l.bol_offer_id || l.ean : l.woo_product_id))
@@ -211,9 +211,20 @@ export function createHttpServer(app) {
           });
         }
       }
-      const items = forecastAll(rt.db, opts).map((p) => ({ ...p, shop: rt.id, usedIn: usedIn.get(p.sku) ?? [] }));
+      const all = forecastAll(rt.db, opts).map((p) => ({ ...p, shop: rt.id, usedIn: usedIn.get(p.sku) ?? [] }));
       const soldToday = { bol: 0, woocommerce: 0 };
-      for (const p of items) for (const c of Object.keys(soldToday)) soldToday[c] += p.soldToday?.[c] ?? 0;
+      for (const p of all) for (const c of Object.keys(soldToday)) soldToday[c] += p.soldToday?.[c] ?? 0;
+      // Samples cut from a stock item (e.g. tiles) are shown with that item, not as own rows.
+      const samplesOf = new Map();
+      for (const s of all.filter((p) => p.cut_from)) {
+        if (!samplesOf.has(s.cut_from)) samplesOf.set(s.cut_from, []);
+        samplesOf.get(s.cut_from).push({
+          sku: s.sku, name: s.name, yield: s.cut_yield, loose: s.stock, looseCounted: Boolean(s.stock_confirmed),
+          sellable: s.sellable, channelStock: s.channelStock, pendingSync: s.pendingSync, woo_product_id: s.woo_product_id,
+        });
+      }
+      const items = all.filter((p) => !p.cut_from || !all.some((x) => x.sku === p.cut_from))
+        .map((p) => ({ ...p, samples: samplesOf.get(p.sku) ?? [] }));
       shopsOut.push({
         id: rt.id,
         name: rt.shop.name,
@@ -334,6 +345,9 @@ export function createHttpServer(app) {
       send(res, 200, rt.inventory.setDropshipCategories(Array.isArray(categories) ? categories.map(String) : [], { samplePattern: SAMPLE_PATTERN, userName: user.name }));
     }, { shop: true }],
     ['GET', new RegExp(`^${SHOP}/packs$`), 'beheerder', ({ res, rt }) => send(res, 200, suggestPacks(rt.inventory)), { shop: true }],
+    ['POST', new RegExp(`^${SHOP}/samples/reset$`), 'beheerder', ({ res, user, rt }) => {
+      send(res, 200, rt.inventory.resetLooseSamples({ userName: user.name }));
+    }, { shop: true }],
     ['POST', new RegExp(`^${SHOP}/packs$`), 'beheerder', async ({ req, res, user, rt }) => {
       const { keys, yields } = await readJson(req);
       const result = applyPacks(rt.inventory, Array.isArray(keys) ? keys : [], { userName: user.name, yields: yields && typeof yields === 'object' ? yields : {} });

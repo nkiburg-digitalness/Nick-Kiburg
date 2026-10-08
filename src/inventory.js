@@ -224,6 +224,21 @@ export class Inventory {
     };
   }
 
+  /**
+   * Set the loose (already cut) samples of every sample item to 0: from now on samples are
+   * cut from the stock item when ordered, leftovers are tracked automatically.
+   */
+  resetLooseSamples({ userName = null } = {}) {
+    let reset = 0;
+    for (const p of this.db.prepare('SELECT * FROM products WHERE cut_from IS NOT NULL').all()) {
+      if (p.stock === 0 && p.stock_confirmed) continue;
+      this.setStock({ sku: p.sku, count: 0, note: 'Losse samples op 0 gezet', userName });
+      reset++;
+    }
+    this.bus.log('info', `Losse samples op 0 gezet voor ${reset} product(en)${by(userName)}`);
+    return { reset };
+  }
+
   /** Webshop categories with their number of products and how many are dropshipped. */
   categories() {
     return this.db.prepare(`

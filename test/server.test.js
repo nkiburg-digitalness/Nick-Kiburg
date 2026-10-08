@@ -446,3 +446,27 @@ test('a Bol.com offer that is exactly a webshop variation is linked to that prod
     close();
   }
 });
+
+test('samples are shown with their tile; loose samples can be reset to 0', async () => {
+  const { app, loggedIn, close } = await start();
+  try {
+    const request = await loggedIn();
+    const inv = app.shops.get('shop-a').inventory;
+    inv.upsertProduct({ sku: 'T', name: 'Plaktegel Marmer – Per tegel', woo_product_id: 1, woo_variation_id: 2, stock: 120 });
+    inv.upsertProduct({ sku: 'S', name: 'Plaktegel Marmer – Sample bestellen', woo_product_id: 1, woo_variation_id: 3, stock: 1293, cut_from: 'T', cut_yield: 2 });
+    inv.saveListing({ name: 'Plaktegel Marmer – Doos van 20 stuks', woo_product_id: 1, woo_variation_id: 4, components: [{ item_sku: 'T', quantity: 20 }] });
+    const ov = (await request('/api/overview?shop=shop-a')).data;
+    assert.equal(ov.products.some((p) => p.sku === 'S'), false, 'no own row for the sample');
+    const tile = ov.products.find((p) => p.sku === 'T');
+    assert.deepEqual(tile.samples.map((s) => [s.sku, s.yield, s.loose, s.sellable]), [['S', 2, 1293, 1293 + 240]]);
+    assert.equal(tile.usedIn[0].available, 6);
+    assert.equal(ov.shops.find((s) => s.id === 'shop-a').summary.products, 1);
+
+    const reset = await request('/api/shops/shop-a/samples/reset', { method: 'POST', body: {} });
+    assert.deepEqual(reset.data, { reset: 1 });
+    assert.equal(inv.getProduct('S').stock, 0);
+    assert.equal(inv.availableStock(inv.getProduct('S')).quantity, 240);
+  } finally {
+    close();
+  }
+});

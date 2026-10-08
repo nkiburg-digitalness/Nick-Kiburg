@@ -155,6 +155,9 @@ export function applyPacks(inventory, keys, { userName = null, yields = {} } = {
       for (const s of g.samples ?? []) {
         const k = Number.parseInt(yields[g.key], 10) || 4;
         inventory.upsertProduct({ sku: s.sku, cut_from: g.base.sku, cut_yield: k }, { userName });
+        // Samples are cut when ordered: no loose (already cut) samples to start with.
+        const sample = inventory.getProduct(s.sku);
+        if (sample.stock !== 0 || !sample.stock_confirmed) inventory.setStock({ sku: s.sku, count: 0, note: 'Losse samples beginnen op 0', userName });
         out.samples++;
       }
       out.groups++;
